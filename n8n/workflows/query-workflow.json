@@ -8,7 +8,7 @@
       "typeVersion": 1,
       "position": [
         680,
-        1420
+        1680
       ],
       "id": "71c795f1-1614-4223-ab29-0d45c2371d80"
     },
@@ -23,7 +23,7 @@
       "typeVersion": 1,
       "position": [
         900,
-        1420
+        1680
       ],
       "id": "42fe713c-8189-48b9-9036-4f4dd99f029f"
     },
@@ -36,7 +36,7 @@
       "typeVersion": 1,
       "position": [
         1120,
-        1420
+        1680
       ],
       "id": "0960f386-f42c-4736-a6e1-80671f52eecb"
     },
@@ -50,7 +50,7 @@
       "typeVersion": 2,
       "position": [
         1340,
-        1420
+        1680
       ],
       "id": "5f51b294-4c99-4b17-9910-081a8591c323"
     },
@@ -85,7 +85,7 @@
       "typeVersion": 3,
       "position": [
         1560,
-        1420
+        1680
       ],
       "id": "15d720c2-bf52-48bf-9da2-174ad5ed7658"
     },
@@ -98,7 +98,7 @@
       "typeVersion": 1,
       "position": [
         1780,
-        1420
+        1680
       ],
       "id": "9cb3696f-4060-4ed9-8b3c-edf1a717f3c2"
     },
@@ -114,7 +114,7 @@
       "typeVersion": 1,
       "position": [
         660,
-        1960
+        2220
       ],
       "webhookId": "f1a6c1f0-d1e8-4f07-b824-8c72f1c1e1d0",
       "id": "070ed37c-b668-4f41-ac2b-e90dfaba453e"
@@ -128,7 +128,7 @@
       "typeVersion": 1,
       "position": [
         1120,
-        1960
+        2220
       ],
       "id": "c32d8926-144f-48b4-bfe2-a5928fa64b31"
     },
@@ -141,7 +141,7 @@
       "typeVersion": 1,
       "position": [
         1340,
-        1960
+        2220
       ],
       "id": "3e455dd9-3ac1-4fc2-8438-490a7417e4cf"
     },
@@ -168,7 +168,7 @@
       "typeVersion": 3,
       "position": [
         1560,
-        1960
+        2220
       ],
       "id": "66edb332-f418-4204-9eec-3f03dfa87548"
     },
@@ -181,7 +181,7 @@
       "typeVersion": 1,
       "position": [
         1780,
-        1960
+        2220
       ],
       "id": "d7ae5fb8-e352-4462-b46c-240cc04bf040"
     },
@@ -194,7 +194,7 @@
       "typeVersion": 1,
       "position": [
         2220,
-        1960
+        2220
       ],
       "id": "eeeed146-ae27-49d9-84f4-8b6451c2eb47"
     },
@@ -207,7 +207,7 @@
       "typeVersion": 1,
       "position": [
         2000,
-        1960
+        2220
       ],
       "id": "29bc0104-7240-40c7-b5b4-880829e1dffb"
     },
@@ -222,7 +222,7 @@
       "typeVersion": 1,
       "position": [
         900,
-        1960
+        2220
       ],
       "id": "8e647c74-677d-464b-8ccf-12e96cf1b8ca"
     },
@@ -245,7 +245,7 @@
       "typeVersion": 3,
       "position": [
         900,
-        2440
+        2700
       ],
       "id": "31744b76-4b62-428b-8110-72ab47cba8af"
     },
@@ -258,7 +258,7 @@
       "typeVersion": 1,
       "position": [
         1120,
-        2440
+        2700
       ],
       "id": "2a1745a5-5d76-4ccb-a65d-fd4be4a12f4e"
     },
@@ -271,7 +271,7 @@
       "typeVersion": 1,
       "position": [
         1340,
-        2440
+        2700
       ],
       "id": "c2fbba7b-4310-4936-89a8-56b291060689"
     },
@@ -287,7 +287,7 @@
       "typeVersion": 1,
       "position": [
         680,
-        2440
+        2700
       ],
       "webhookId": "a8b3f920-7c4d-4e6a-9b15-6f87e9d2a0c3",
       "id": "cb206a08-693c-414b-9b9b-c23587cf6b6d"
@@ -315,7 +315,7 @@
       "typeVersion": 3,
       "position": [
         1560,
-        2440
+        2700
       ],
       "id": "1e42670a-67e3-419f-b7f3-924a4a3f200c"
     },
@@ -328,7 +328,7 @@
       "typeVersion": 1,
       "position": [
         1780,
-        2440
+        2700
       ],
       "id": "5c3b1b8d-0dd9-4423-b2c3-fc7d315c2206"
     },
@@ -341,7 +341,7 @@
       "typeVersion": 1,
       "position": [
         2220,
-        2440
+        2700
       ],
       "id": "ce761d69-7631-4440-9f11-064b1850bc05"
     },
@@ -354,7 +354,7 @@
       "typeVersion": 1,
       "position": [
         2000,
-        2440
+        2700
       ],
       "id": "9cacd1ce-62bf-472a-a4c1-fa8e535a6fa1"
     },
@@ -398,7 +398,7 @@
       "typeVersion": 1,
       "position": [
         0,
-        1280
+        1540
       ],
       "id": "a074b0a3-e1bc-47a3-a0ce-37c6ac0d3c54",
       "name": "Sticky Note1"
@@ -413,7 +413,7 @@
       "typeVersion": 1,
       "position": [
         0,
-        1760
+        2020
       ],
       "id": "37b9518f-c44d-4969-9716-30c25bc94eb5",
       "name": "Sticky Note3"
@@ -428,7 +428,7 @@
       "typeVersion": 1,
       "position": [
         0,
-        2260
+        2520
       ],
       "id": "b15256b2-6172-46b7-9671-24e610b3729e",
       "name": "Sticky Note4"
@@ -452,7 +452,7 @@
       "parameters": {
         "content": "## CAG Retrieval from Local LLM . KV Cache management script separate\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
         "height": 460,
-        "width": 2840,
+        "width": 1800,
         "color": 2
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -468,14 +468,14 @@
       "parameters": {
         "content": "## CAG Simulation \"Warm Up\"",
         "height": 460,
-        "width": 2840,
+        "width": 1800,
         "color": 3
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         640,
-        1280
+        1540
       ],
       "id": "ceb5d966-aad9-452e-8fde-0f3da4f5f24d",
       "name": "Sticky Note7"
@@ -484,14 +484,14 @@
       "parameters": {
         "content": "## Feeding Whole Prompt at Querry\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
         "height": 460,
-        "width": 2840,
+        "width": 1800,
         "color": 4
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         640,
-        1760
+        2020
       ],
       "id": "f0247630-3069-4ac6-b461-89119bded693",
       "name": "Sticky Note8"
@@ -500,14 +500,14 @@
       "parameters": {
         "content": "## KAG\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
         "height": 460,
-        "width": 2840,
+        "width": 1820,
         "color": 5
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         640,
-        2260
+        2520
       ],
       "id": "43b1c13c-6a06-4fbc-9e7b-c4399895952b",
       "name": "Sticky Note9"
@@ -604,8 +604,8 @@
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.1,
       "position": [
-        2340,
-        300
+        1720,
+        860
       ],
       "id": "645cd76f-8d84-4aea-9284-907caf028bb9",
       "name": "When chat message received",
@@ -624,8 +624,8 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        2520,
-        540
+        1900,
+        1100
       ],
       "id": "8e1e65a3-32f1-4f81-bea1-0e3a39208a0f",
       "name": "Anthropic Chat Model"
@@ -635,8 +635,8 @@
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.1,
       "position": [
-        2820,
-        540
+        2200,
+        1100
       ],
       "id": "6db86ff7-d2e2-437d-b053-0dcbfb5e99de",
       "name": "Call n8n Workflow Tool"
@@ -648,11 +648,58 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.8,
       "position": [
-        2640,
-        300
+        2020,
+        860
       ],
       "id": "56699368-9545-4ea7-a91e-c2e63144264d",
       "name": "PLACEHOLDER AGENT"
+    },
+    {
+      "parameters": {
+        "content": "## Configuration Instructions for Retrieval Workflow\n1. Environment Variable Configuration\nThe workflow references $env.LLAMACPP_SERVER_URL which needs to be set in n8n:\n\nIn n8n, go to Settings (gear icon) → Variables\nAdd a new variable:\n\nName: LLAMACPP_SERVER_URL\nValue: http://cag-bridge:8000 (if using Docker setup) or http://localhost:8000 (if running locally)\n\n\nSave your changes\n\n2. HTTP Request Node Configuration\nThe \"Query CAG Model\" node needs to be configured correctly:\n\nSelect the \"Query CAG Model\" node\nVerify the URL is set to {{ $env.LLAMACPP_SERVER_URL }}/query (or update it if needed)\nEnsure the Content-Type header is set to application/json\nVerify the body parameters contain:\n\nquery: ={{ $json.query }}\nmaxTokens: ={{ $json.maxTokens || 1024 }}\ntemperature: ={{ $json.temperature || 0.7 }}\n\n\n\n3. Master KV Cache Creation\nBefore using the retrieval workflow, ensure a master KV cache exists:\n\nRun the KV Cache Management workflow with the setAsMaster option set to true\nCheck that the master KV cache was created at the configured path (default: /data/kv_caches/master_cache.bin)\nNote: The CAG Bridge assumes this master cache exists for all queries\n\n4. Testing the Workflow\n\nCreate a test execution with input parameters:\njsonCopier{\n  \"query\": \"What are the key features of this system?\",\n  \"maxTokens\": 1024,\n  \"temperature\": 0.7\n}\n\nExecute the workflow and verify the response is properly formatted\n\n5. Endpoint Usage\nWhen integrating with other applications, use:\nCopierPOST http://localhost:5678/webhook/cag/query\nContent-Type: application/json\n\n{\n  \"query\": \"Your question about the document content\",\n  \"maxTokens\": 1024,\n  \"temperature\": 0.7\n}\nAdditional Recommendations\n\nError Handling: Consider adding error handling nodes to handle cases where the CAG Bridge is unavailable or the KV cache doesn't exist\nLogging: Add a node to log queries and responses for monitoring and debugging\nCaching: Consider implementing response caching for frequent queries to reduce load on the model",
+        "height": 1260,
+        "width": 720
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        0
+      ],
+      "id": "90e6f864-ae6f-4b50-ae6f-a78c8057ef96",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## Work in Progess\n\nAdditional Methods for Managing \"Memory\"",
+        "height": 260,
+        "width": 2440,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1280
+      ],
+      "id": "405aa1d5-96d1-453e-bf27-9d5a421691a1",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "content": "## Data Memory Management for Large Language Models: Project Overview\nWhat This Project Is About\nThis project develops a sophisticated system for enhancing how large language models (LLMs) work with documents using a technique called Context-Augmented Generation (CAG). Unlike traditional approaches that slice documents into tiny chunks, this system leverages large context window models (128K tokens) to process entire documents and store their \"memory state\" for quick recall later.\nThink of it like this: instead of giving an LLM random snippets of a book each time it's asked a question, this system lets the model \"read the whole book once\" and remember everything, making future questions much faster and more accurate.\nMain Scenarios & Concepts\n1. Context-Augmented Generation (KV Cache Management)\nWhat it is: The core innovation of this project - using \"memory snapshots\" (KV caches) of documents that models can instantly access.\nHow it works:\n\nDocuments are processed once by large context models\nThe model's internal state (its \"thoughts\" about the document) is saved as a KV cache\nFuture queries use this pre-computed knowledge without re-reading the document\n\nKey components: Document processing workflow, CAG Bridge, KV cache storage\n2. Document Optimization\nWhat it is: An intelligent preprocessing step that prepares documents for efficient storage.\nHow it works:\n\nUses Claude to clean up documents - removing redundancies and repetition\nPreserves the meaning and structure while optimizing token usage\nMakes documents more efficient for storage in the model's context window\n\nKey components: Document optimization workflow, Claude API integration\n3. Model Warm-up\nWhat it is: A technique to \"prime\" the model with relevant knowledge before queries.\nHow it works:\n\nPeriodically feeds document summaries to the model\nKeeps important information in the model's \"working memory\"\nImproves response speed and quality for frequent topics\n\nKey components: Scheduled triggers, document summary generation\n4. Knowledge-Augmented Generation (KAG)\nWhat it is: An extension that combines document knowledge with structured facts.\nHow it works:\n\nQueries structured knowledge sources alongside documents\nBlends factual information with contextual understanding\nProvides more comprehensive and accurate responses\n\nKey components: Knowledge graph integration, fact formatting\n5. System Maintenance\nWhat it is: Automated housekeeping to keep the system running efficiently.\nHow it works:\n\nCleans up temporary files and unused caches\nMonitors system health and usage patterns\nMaintains performance as document collections grow\n\nKey components: Maintenance workflow, database monitoring\n6. Retrieval-Augmented Generation (RAG)\nWhat it is: The popular approach of retrieving relevant chunks from a vector database to augment LLM responses.\nHow it fits in this design:\nWhile CAG is the primary focus of this project, RAG is intentionally designed as a complementary approach that can be called by the intelligent agent. The design intent allows for flexibility in how questions are answered:\nHow it works in this system:\n\nThe agent can evaluate each user query and decide the best approach\nFor some questions, the agent might call the CAG system for deep document knowledge\nFor others, it might call a RAG system for broader but shallower knowledge\nThe agent can even combine outputs from both systems for comprehensive answers\n\nWhy not the main focus: The project doesn't emphasize RAG implementation because there are already many excellent templates and implementations available. Instead, it focuses on the more innovative CAG approach while ensuring RAG compatibility.",
+        "height": 1700,
+        "width": 720,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        1280
+      ],
+      "id": "62bc15e6-8ad2-47b5-b651-1b8d54189445",
+      "name": "Sticky Note12"
     }
   ],
   "pinData": {},
@@ -937,7 +984,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "81fbc918-e06d-4b5b-ad98-895030a2fb9f",
+  "versionId": "96ef11ef-8c0c-4cb7-8c72-873c0f3012fa",
   "meta": {
     "instanceId": "031b645215ae9b6f375e501b38c32a541dca72c391120eef6f1ad1015f3ee67f"
   },
