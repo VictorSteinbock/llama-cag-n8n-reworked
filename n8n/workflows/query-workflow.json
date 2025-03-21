@@ -1,18 +1,516 @@
 {
-  "name": "CAG Query - Minimal",
+  "name": "RETRIEVAL",
   "nodes": [
     {
+      "parameters": {},
+      "name": "Cron (Daily Warm-up)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        680,
+        1420
+      ],
+      "id": "71c795f1-1614-4223-ab29-0d45c2371d80"
+    },
+    {
       "parameters": {
-        "path": "cag/query",
-        "options": {
-          "responseMode": "responseNode"
+        "operation": "executeQuery",
+        "query": "-- Select document summaries or metadata for warm-up\n-- Customize this query to retrieve the specific context you want to preload\nSELECT \n    d.document_title AS title,\n    string_agg(c.section_title || ': ' || LEFT(c.chunk_text, 500), '\n') AS summary\nFROM documents d\nJOIN cag_document_registry c ON d.document_id = c.document_id\nWHERE d.status = 'cached'\nGROUP BY d.document_id, d.document_title",
+        "additionalFields": {}
+      },
+      "name": "Retrieve Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        900,
+        1420
+      ],
+      "id": "42fe713c-8189-48b9-9036-4f4dd99f029f"
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nconst warmUpPrompts = [];\n\nfor (const item of items) {\n  const { title, summary } = item.json;\n  // Construct a structured warm-up prompt\n  const prompt = `[WARM-UP] Document: ${title}\\nContext Summary:\\n${summary}\\n[END WARM-UP]`;\n  warmUpPrompts.push({ json: { prompt } });\n}\n\nreturn warmUpPrompts;"
+      },
+      "name": "Prepare Warm-Up Prompts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        1420
+      ],
+      "id": "0960f386-f42c-4736-a6e1-80671f52eecb"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        1420
+      ],
+      "id": "5f51b294-4c99-4b17-9910-081a8591c323"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.LLAMACPP_SERVER_URL }}/completion",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            },
+            {
+              "name": "cache_prompt",
+              "value": true
+            },
+            {
+              "name": "n_predict",
+              "value": 0
+            },
+            {
+              "name": "n_keep",
+              "value": "={{ $json.prompt.length + 1 }}"
+            }
+          ]
         },
-        "authentication": "none"
+        "options": {}
+      },
+      "name": "Warm-Up Inference",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1560,
+        1420
+      ],
+      "id": "15d720c2-bf52-48bf-9da2-174ad5ed7658"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Simple logging of warm-up status\nconst { prompt } = $json;\nconsole.log(`Warm-up prompt sent: ${prompt.substring(0, 50)}...`);\nreturn $input.all();"
+      },
+      "name": "Log Warm-Up",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        1420
+      ],
+      "id": "9cb3696f-4060-4ed9-8b3c-edf1a717f3c2"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "query",
+        "responseMode": "responseNode",
+        "options": {}
       },
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [250, 300]
+      "position": [
+        660,
+        1960
+      ],
+      "webhookId": "f1a6c1f0-d1e8-4f07-b824-8c72f1c1e1d0",
+      "id": "070ed37c-b668-4f41-ac2b-e90dfaba453e"
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nlet context = \"\";\n\nif (!items || items.length === 0 || !items[0].json) {\n  return [{ json: { context: \"[No relevant context found]\", foundContext: false } }];\n}\n\nfor (const item of items) {\n  const { section_title, chunk_text, document_title, document_id } = item.json;\n  context += `Document: ${document_title} (ID: ${document_id})\\n`;\n  context += `Section: ${section_title}\\n`;\n  context += `Chunk: ${chunk_text}\\n\\n`;\n}\n\nreturn [{ json: { context: context.trim(), foundContext: true } }];"
+      },
+      "name": "Aggregate Context",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        1960
+      ],
+      "id": "c32d8926-144f-48b4-bfe2-a5928fa64b31"
+    },
+    {
+      "parameters": {
+        "functionCode": "const userQuery = $input.item.json.query || $workflow.execution.data.initialInput.body.query;\nconst context = $input.item.json.context;\n\n// Build the final composite prompt\nconst prompt = `Context:\\n${context}\\n\\nUser Query: ${userQuery}\\n\\nAnswer:`;\n\nreturn [{ json: { prompt, userQuery, context } }];"
+      },
+      "name": "Construct Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        1960
+      ],
+      "id": "3e455dd9-3ac1-4fc2-8438-490a7417e4cf"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.LLAMACPP_SERVER_URL }}/completion",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            },
+            {
+              "name": "n_predict",
+              "value": 512
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Inference",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1560,
+        1960
+      ],
+      "id": "66edb332-f418-4204-9eec-3f03dfa87548"
+    },
+    {
+      "parameters": {
+        "functionCode": "const llmResponse = $input.item.json.content;\nconst userQuery = $input.item.json.userQuery;\n\n// Process and trim the LLM response\nconst answer = llmResponse.trim();\n\nreturn [{ json: { answer, query: userQuery, context: $input.item.json.context } }];"
+      },
+      "name": "Process Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        1960
+      ],
+      "id": "d7ae5fb8-e352-4462-b46c-240cc04bf040"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        1960
+      ],
+      "id": "eeeed146-ae27-49d9-84f4-8b6451c2eb47"
+    },
+    {
+      "parameters": {
+        "functionCode": "const processingTime = Date.now() - $workflow.execution.startedAt;\nconst contextLength = $input.item.json.context ? $input.item.json.context.length : 0;\n\nreturn [{ json: { processingTime, contextLength, query: $input.item.json.query } }];"
+      },
+      "name": "Log Metrics",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        1960
+      ],
+      "id": "29bc0104-7240-40c7-b5b4-880829e1dffb"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Retrieve context chunks based on semantic similarity\nWITH user_query AS (\n  SELECT '{{ $json.body.query }}'::text AS query_text\n)\nSELECT\n  c.chunk_id,\n  c.section_title,\n  c.chunk_text,\n  d.document_title,\n  d.document_id\nFROM cag_document_registry c\nJOIN documents d ON c.document_id = d.document_id\nWHERE d.status = 'cached'\n  AND c.cag_status = 'cached'\n  AND c.chunk_text ILIKE '%' || (SELECT query_text FROM user_query) || '%'\nORDER BY c.chunk_text ILIKE '%' || (SELECT query_text FROM user_query) || '%'\nLIMIT 5;",
+        "additionalFields": {}
+      },
+      "name": "Retrieve Context1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        900,
+        1960
+      ],
+      "id": "8e647c74-677d-464b-8ccf-12e96cf1b8ca"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.KNOWLEDGE_GRAPH_API_URL }}/query",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.body.query }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Query Knowledge Graph",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        900,
+        2440
+      ],
+      "id": "31744b76-4b62-428b-8110-72ab47cba8af"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format the facts retrieved from the knowledge graph\n// Assuming the knowledge graph returns an array of facts\nconst items = $input.all();\n\nif (!items || items.length === 0 || !items[0].json) { \n  return [{ json: { facts: '[No relevant facts found]', hasFacts: false } }];\n}\n\nlet facts = \"\";\nfor (const item of items) {\n  // Adapt this to the actual structure of your knowledge graph response\n  if (item.json.fact) {\n    facts += `- ${item.json.fact}\\n`;\n  } else if (item.json.subject && item.json.predicate && item.json.object) {\n    facts += `- ${item.json.subject} ${item.json.predicate} ${item.json.object}\\n`;\n  }\n}\n\nreturn [{ json: { facts: facts.trim(), hasFacts: true } }];"
+      },
+      "name": "Format Facts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        2440
+      ],
+      "id": "2a1745a5-5d76-4ccb-a65d-fd4be4a12f4e"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Combine dynamic context, knowledge graph facts, and the user query\nconst userQuery = $input.item.json.query || $workflow.execution.data.initialInput.body.query;\nconst facts = $input.item.json.facts || \"[No relevant facts found]\";\n\nlet prompt = \"\";\n\n// Add facts if available\nif ($input.item.json.hasFacts) {\n  prompt += `Facts:\\n${facts}\\n\\n`;\n}\n\n// Append the user query\nprompt += `User Query: ${userQuery}\\n\\nAnswer:`;\n\nreturn [{ json: { prompt, userQuery, facts } }];"
+      },
+      "name": "Combine Context and Facts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        2440
+      ],
+      "id": "c2fbba7b-4310-4936-89a8-56b291060689"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "query_kag",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        680,
+        2440
+      ],
+      "webhookId": "a8b3f920-7c4d-4e6a-9b15-6f87e9d2a0c3",
+      "id": "cb206a08-693c-414b-9b9b-c23587cf6b6d"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.LLAMACPP_SERVER_URL }}/completion",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            },
+            {
+              "name": "n_predict",
+              "value": 512
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Inference1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1560,
+        2440
+      ],
+      "id": "1e42670a-67e3-419f-b7f3-924a4a3f200c"
+    },
+    {
+      "parameters": {
+        "functionCode": "const llmResponse = $input.item.json.content;\nconst userQuery = $input.item.json.userQuery;\nconst facts = $input.item.json.facts;\n\nconst answer = llmResponse.trim();\n\nreturn [{ json: { answer, query: userQuery, facts } }];"
+      },
+      "name": "Process Response1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        2440
+      ],
+      "id": "5c3b1b8d-0dd9-4423-b2c3-fc7d315c2206"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Respond to Webhook1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2220,
+        2440
+      ],
+      "id": "ce761d69-7631-4440-9f11-064b1850bc05"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log performance and usage data\nconst processingTime = Date.now() - $workflow.execution.startedAt;\n\nreturn [{ json: { processingTime, query: $input.item.json.query, factsUsed: $input.item.json.hasFacts } }];"
+      },
+      "name": "Log Metrics1",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        2440
+      ],
+      "id": "9cacd1ce-62bf-472a-a4c1-fa8e535a6fa1"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot of workflow](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Screenshot%202025-03-20%20at%2020.02.09.png)",
+        "height": 800,
+        "width": 1020
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "d283eebe-f313-4c65-9622-1cfd9694bfeb",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot 1](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Capture%20d'%C3%A9cran%202025-03-21%20004453.png)",
+        "height": 800,
+        "width": 1120
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9c35f856-f612-402b-b135-dece44704eb8",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot 2](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Capture%20d'%C3%A9cran%202025-03-21%20004523.png)",
+        "height": 460,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1280
+      ],
+      "id": "a074b0a3-e1bc-47a3-a0ce-37c6ac0d3c54",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot 3](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Capture%20d'%C3%A9cran%202025-03-21%20004536.png)",
+        "height": 460,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1760
+      ],
+      "id": "37b9518f-c44d-4969-9716-30c25bc94eb5",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot 4](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Capture%20d'%C3%A9cran%202025-03-21%20004547.png)",
+        "height": 460,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        2260
+      ],
+      "id": "b15256b2-6172-46b7-9671-24e610b3729e",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "![Screenshot 2025-03-20 at 20.02.49](https://raw.githubusercontent.com/AbelCoplet/llama-cag-n8N/main/docs/images/Screenshot%202025-03-20%20at%2020.02.49.png)",
+        "height": 460,
+        "width": 640
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        800
+      ],
+      "id": "f16945e0-6932-45ca-8657-d36798899e6e",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## CAG Retrieval from Local LLM . KV Cache management script separate\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
+        "height": 460,
+        "width": 2840,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        800
+      ],
+      "id": "5c9f02b9-8080-40c9-9006-b65d167dea5f",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## CAG Simulation \"Warm Up\"",
+        "height": 460,
+        "width": 2840,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        1280
+      ],
+      "id": "ceb5d966-aad9-452e-8fde-0f3da4f5f24d",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Feeding Whole Prompt at Querry\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
+        "height": 460,
+        "width": 2840,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        1760
+      ],
+      "id": "f0247630-3069-4ac6-b461-89119bded693",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## KAG\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)",
+        "height": 460,
+        "width": 2840,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        2260
+      ],
+      "id": "43b1c13c-6a06-4fbc-9e7b-c4399895952b",
+      "name": "Sticky Note9"
     },
     {
       "parameters": {
@@ -26,7 +524,6 @@
             }
           ]
         },
-        "options": {},
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -43,12 +540,17 @@
               "value": "={{ $json.temperature || 0.7 }}"
             }
           ]
-        }
+        },
+        "options": {}
       },
       "name": "Query CAG Model",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [450, 300]
+      "position": [
+        880,
+        1000
+      ],
+      "id": "091549f0-3e05-4d7b-973e-5e9925667c20"
     },
     {
       "parameters": {
@@ -57,7 +559,11 @@
       "name": "Format Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [650, 300]
+      "position": [
+        1080,
+        1000
+      ],
+      "id": "31569a77-4962-4895-bf78-f4d9760db21a"
     },
     {
       "parameters": {
@@ -68,15 +574,292 @@
       "name": "Return Response",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [850, 300]
+      "position": [
+        1280,
+        1000
+      ],
+      "id": "6c1408ab-4336-4336-8a5d-f5847a0898e0"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        1000
+      ],
+      "id": "e28fa3fa-b358-4ff8-ba3e-7e99e5149acb",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        2340,
+        300
+      ],
+      "id": "645cd76f-8d84-4aea-9284-907caf028bb9",
+      "name": "When chat message received",
+      "webhookId": "3446d06b-d139-42ed-9a32-e8db9928b015"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-3-7-sonnet-20250219",
+          "cachedResultName": "Claude 3.7 Sonnet"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        2520,
+        540
+      ],
+      "id": "8e1e65a3-32f1-4f81-bea1-0e3a39208a0f",
+      "name": "Anthropic Chat Model"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.1,
+      "position": [
+        2820,
+        540
+      ],
+      "id": "6db86ff7-d2e2-437d-b053-0dcbfb5e99de",
+      "name": "Call n8n Workflow Tool"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        2640,
+        300
+      ],
+      "id": "56699368-9545-4ea7-a91e-c2e63144264d",
+      "name": "PLACEHOLDER AGENT"
     }
   ],
+  "pinData": {},
   "connections": {
+    "Cron (Daily Warm-up)": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Warm-Up Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Warm-Up Prompts": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Warm-Up Inference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warm-Up Inference": {
+      "main": [
+        [
+          {
+            "node": "Log Warm-Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Webhook": {
       "main": [
         [
           {
-            "node": "Query CAG Model",
+            "node": "Retrieve Context1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Context": {
+      "main": [
+        [
+          {
+            "node": "Construct Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct Prompt": {
+      "main": [
+        [
+          {
+            "node": "Inference",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inference": {
+      "main": [
+        [
+          {
+            "node": "Process Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response": {
+      "main": [
+        [
+          {
+            "node": "Log Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Metrics": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Context1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Knowledge Graph": {
+      "main": [
+        [
+          {
+            "node": "Format Facts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Facts": {
+      "main": [
+        [
+          {
+            "node": "Combine Context and Facts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Context and Facts": {
+      "main": [
+        [
+          {
+            "node": "Inference1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Query Knowledge Graph",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inference1": {
+      "main": [
+        [
+          {
+            "node": "Process Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response1": {
+      "main": [
+        [
+          {
+            "node": "Log Metrics1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Metrics1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
             "type": "main",
             "index": 0
           }
@@ -104,12 +887,60 @@
           }
         ]
       ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Query CAG Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "PLACEHOLDER AGENT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "PLACEHOLDER AGENT",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call n8n Workflow Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "PLACEHOLDER AGENT",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": false,
   "settings": {
-    "executionOrder": "v1",
-    "saveExecutionProgress": true,
-    "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": ""
-  }
+    "executionOrder": "v1"
+  },
+  "versionId": "81fbc918-e06d-4b5b-ad98-895030a2fb9f",
+  "meta": {
+    "instanceId": "031b645215ae9b6f375e501b38c32a541dca72c391120eef6f1ad1015f3ee67f"
+  },
+  "id": "cLCMEjxOljNKVeXf",
+  "tags": []
 }
