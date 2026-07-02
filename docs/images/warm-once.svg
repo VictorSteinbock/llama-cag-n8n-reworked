@@ -1,0 +1,91 @@
+<svg viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="woIngest" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#B45309"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <radialGradient id="woGlow" cx="30%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="400" fill="#0F172A"/>
+  <ellipse cx="330" cy="196" rx="380" ry="150" fill="url(#woGlow)"/>
+
+  <!-- title -->
+  <text x="60" y="54" font-size="30" font-weight="700" fill="#E2E8F0">The expensive part happens once</text>
+  <text x="60" y="82" font-size="16" fill="#94A3B8">Bar length ≈ tokens the model actually evaluates. The green queries are tiny next to the one-time read.</text>
+
+  <!-- baseline axis -->
+  <line x1="60" y1="300" x2="1140" y2="300" stroke="#334155" stroke-width="1.5"/>
+  <text x="60" y="330" font-size="13" fill="#64748B">time →</text>
+
+  <!-- ===== Ingest bar (long amber) ===== -->
+  <g>
+    <rect x="60" y="150" width="470" height="150" rx="10" fill="url(#woIngest)"/>
+    <rect x="60" y="150" width="470" height="150" rx="10" fill="none" stroke="#FBBF24" stroke-width="1.5" stroke-opacity="0.5"/>
+    <text x="80" y="196" font-size="19" font-weight="700" fill="#1F1206">Ingest — model reads the document</text>
+    <text x="80" y="224" font-size="30" font-weight="800" fill="#1F1206">28,400 tokens</text>
+    <text x="80" y="256" font-size="16" font-weight="700" fill="#3A2409">ONCE · minutes on CPU · saved to disk</text>
+    <!-- flame accent -->
+    <g transform="translate(495 258)">
+      <path d="M0 20 C -14 8 -10 -6 -1 -15 C -2 -4 6 -6 4 -15 C 15 -6 16 8 4 18 C 10 8 4 3 1 6 C 4 12 -1 15 -4 11 C -6 15 -1 20 0 20 Z" fill="#7C2D12"/>
+    </g>
+  </g>
+
+  <!-- ===== Q1..Q3 tiny green slivers ===== -->
+  <g>
+    <rect x="546" y="250" width="42" height="50" rx="6" fill="#34D399"/>
+    <text x="567" y="238" font-size="14" font-weight="700" fill="#34D399" text-anchor="middle">Q1</text>
+    <text x="567" y="360" font-size="13" fill="#94A3B8" text-anchor="middle">43 tok</text>
+  </g>
+  <g>
+    <rect x="600" y="250" width="42" height="50" rx="6" fill="#34D399"/>
+    <text x="621" y="238" font-size="14" font-weight="700" fill="#34D399" text-anchor="middle">Q2</text>
+    <text x="621" y="360" font-size="13" fill="#94A3B8" text-anchor="middle">51 tok</text>
+  </g>
+  <g>
+    <rect x="654" y="250" width="42" height="50" rx="6" fill="#34D399"/>
+    <text x="675" y="238" font-size="14" font-weight="700" fill="#34D399" text-anchor="middle">Q3</text>
+    <text x="675" y="360" font-size="13" fill="#94A3B8" text-anchor="middle">38 tok</text>
+  </g>
+
+  <!-- bracket over Q1-Q3 -->
+  <path d="M546 216 v-8 h150 v8" fill="none" stroke="#475569" stroke-width="1.5"/>
+  <text x="621" y="202" font-size="13.5" fill="#94A3B8" text-anchor="middle">from RAM · ms each</text>
+
+  <!-- ===== restart marker ===== -->
+  <g>
+    <line x1="742" y1="120" x2="742" y2="322" stroke="#94A3B8" stroke-width="2" stroke-dasharray="6 6"/>
+    <text x="742" y="112" font-size="15" font-weight="700" fill="#E2E8F0" text-anchor="middle">&#8635; restart / next week</text>
+  </g>
+
+  <!-- ===== restore-from-disk sliver (amber outline) ===== -->
+  <g>
+    <rect x="762" y="240" width="66" height="60" rx="7" fill="#2A2114" stroke="#F59E0B" stroke-width="1.75"/>
+    <text x="795" y="228" font-size="13.5" font-weight="700" fill="#F59E0B" text-anchor="middle">restore</text>
+    <text x="795" y="360" font-size="12.5" fill="#F59E0B" text-anchor="middle">from disk</text>
+    <text x="795" y="376" font-size="12.5" fill="#94A3B8" text-anchor="middle">(no re-read)</text>
+  </g>
+
+  <!-- arrow restore -> Q4 -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="832" y1="272" x2="856" y2="272" stroke-linecap="round"/><path d="M849 266 L858 272 L849 278" stroke-linecap="round" stroke-linejoin="round"/></g>
+
+  <!-- ===== Q4 green sliver ===== -->
+  <g>
+    <rect x="864" y="250" width="42" height="50" rx="6" fill="#34D399"/>
+    <text x="885" y="238" font-size="14" font-weight="700" fill="#34D399" text-anchor="middle">Q4</text>
+    <text x="885" y="360" font-size="13" fill="#94A3B8" text-anchor="middle">45 tok</text>
+  </g>
+
+  <!-- caption box on the right -->
+  <g>
+    <rect x="946" y="150" width="200" height="150" rx="14" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="966" y="182" font-size="15" font-weight="700" fill="#F59E0B">once per document</text>
+    <text x="966" y="210" font-size="14.5" fill="#94A3B8">The expensive read</text>
+    <text x="966" y="230" font-size="14.5" fill="#94A3B8">happens exactly once —</text>
+    <text x="966" y="250" font-size="14.5" fill="#94A3B8">and the KV cache</text>
+    <text x="966" y="270" font-size="14.5" fill="#94A3B8"><tspan fill="#34D399" font-weight="700">survives restarts.</tspan></text>
+  </g>
+</svg>

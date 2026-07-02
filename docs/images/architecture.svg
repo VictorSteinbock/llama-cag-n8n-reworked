@@ -1,0 +1,155 @@
+<svg viewBox="0 0 1200 560" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="archGlowCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="archGlowAmber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="archArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 L9 5 L0 9" fill="none" stroke="#64748B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="archArrowCyan" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 L9 5 L0 9" fill="none" stroke="#22D3EE" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="archArrowAmber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 L9 5 L0 9" fill="none" stroke="#F59E0B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="560" fill="#0F172A"/>
+  <ellipse cx="700" cy="200" rx="240" ry="150" fill="url(#archGlowCyan)"/>
+  <ellipse cx="900" cy="470" rx="220" ry="120" fill="url(#archGlowAmber)"/>
+
+  <!-- title -->
+  <text x="40" y="46" font-size="30" font-weight="700" fill="#E2E8F0">Architecture — four containers, one compose file</text>
+
+  <!-- ================= Docker Compose boundary ================= -->
+  <rect x="344" y="78" width="816" height="454" rx="18" fill="#0C1424" stroke="#475569" stroke-width="2" stroke-dasharray="3 7"/>
+  <text x="366" y="106" font-size="16" font-weight="700" fill="#94A3B8">Docker Compose <tspan font-weight="500" fill="#64748B">· everything binds to 127.0.0.1</tspan></text>
+
+  <!-- ===== n8n ===== -->
+  <g>
+    <rect x="368" y="132" width="196" height="96" rx="14" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="388" y="168" font-size="21" font-weight="700" fill="#E2E8F0">n8n <tspan font-size="14" font-weight="600" fill="#64748B">:5678</tspan></text>
+    <text x="388" y="196" font-size="14.5" fill="#94A3B8">workflow automation</text>
+  </g>
+
+  <!-- ===== cag-api ===== -->
+  <g>
+    <rect x="640" y="132" width="200" height="96" rx="14" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="660" y="168" font-size="21" font-weight="700" fill="#E2E8F0">cag-api <tspan font-size="14" font-weight="600" fill="#64748B">:8000</tspan></text>
+    <text x="660" y="196" font-size="14.5" fill="#94A3B8">FastAPI orchestrator</text>
+  </g>
+
+  <!-- ===== llama-server (cyan) ===== -->
+  <g>
+    <rect x="640" y="288" width="200" height="104" rx="14" fill="#0E2830" stroke="#22D3EE" stroke-width="2"/>
+    <text x="660" y="324" font-size="21" font-weight="700" fill="#22D3EE">llama-server <tspan font-size="14" font-weight="600" fill="#1B98AE">:8080</tspan></text>
+    <text x="660" y="352" font-size="14.5" fill="#94A3B8">llama.cpp · inference</text>
+    <text x="660" y="372" font-size="14.5" fill="#94A3B8">+ KV slot save / restore</text>
+  </g>
+
+  <!-- ===== PostgreSQL ===== -->
+  <g>
+    <rect x="368" y="288" width="196" height="104" rx="14" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="388" y="324" font-size="21" font-weight="700" fill="#E2E8F0">PostgreSQL <tspan font-size="14" font-weight="600" fill="#64748B">:5432</tspan></text>
+    <text x="388" y="352" font-size="14.5" fill="#94A3B8">documents + query_log</text>
+    <text x="388" y="372" font-size="14.5" fill="#94A3B8">· n8n database</text>
+  </g>
+
+  <!-- ===== volumes row ===== -->
+  <!-- models (GGUF) cylinder -->
+  <g>
+    <path d="M900 300 a34 9 0 0 1 68 0 v56 a34 9 0 0 1 -68 0 z" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <ellipse cx="934" cy="300" rx="34" ry="9" fill="#243147" stroke="#334155" stroke-width="1.5"/>
+    <text x="934" y="332" font-size="13.5" font-weight="600" fill="#94A3B8" text-anchor="middle">models</text>
+    <text x="934" y="350" font-size="12.5" fill="#64748B" text-anchor="middle">(GGUF)</text>
+  </g>
+  <!-- kv_caches (amber) cylinder -->
+  <g>
+    <path d="M1000 300 a44 9 0 0 1 88 0 v56 a44 9 0 0 1 -88 0 z" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+    <ellipse cx="1044" cy="300" rx="44" ry="9" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+    <text x="1044" y="332" font-size="13.5" font-weight="700" fill="#F59E0B" text-anchor="middle">kv_caches</text>
+    <text x="1044" y="350" font-size="12" fill="#D9A441" text-anchor="middle">doc-N.bin</text>
+  </g>
+  <text x="967" y="284" font-size="12.5" fill="#64748B" text-anchor="middle">Docker volumes</text>
+
+  <!-- ================= external actors (left) ================= -->
+  <!-- documents/ folder -->
+  <g>
+    <path d="M56 132 h48 l14 16 h90 a8 8 0 0 1 8 8 v58 a8 8 0 0 1 -8 8 H56 a8 8 0 0 1 -8 -8 v-74 a8 8 0 0 1 8 -8 z" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="144" y="190" font-size="16" font-weight="700" fill="#E2E8F0" text-anchor="middle">documents/</text>
+    <text x="144" y="210" font-size="13.5" fill="#94A3B8" text-anchor="middle">folder on host</text>
+  </g>
+
+  <!-- you / curl -->
+  <g>
+    <circle cx="90" cy="310" r="26" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <circle cx="90" cy="302" r="9" fill="#94A3B8"/>
+    <path d="M74 328 a16 14 0 0 1 32 0 z" fill="#94A3B8"/>
+    <text x="152" y="304" font-size="16" font-weight="700" fill="#E2E8F0">you / curl</text>
+    <text x="152" y="324" font-size="13.5" fill="#94A3B8">scripts, shell</text>
+  </g>
+
+  <!-- LlamaCag UI (desktop) -->
+  <g>
+    <rect x="48" y="420" width="188" height="88" rx="12" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <rect x="66" y="438" width="152" height="42" rx="5" fill="#0F172A" stroke="#334155" stroke-width="1.25"/>
+    <circle cx="76" cy="446" r="2.5" fill="#F87171"/>
+    <circle cx="85" cy="446" r="2.5" fill="#F59E0B"/>
+    <circle cx="94" cy="446" r="2.5" fill="#34D399"/>
+    <text x="142" y="468" font-size="13" fill="#94A3B8" text-anchor="middle">desktop UI</text>
+    <text x="142" y="500" font-size="15" font-weight="700" fill="#E2E8F0" text-anchor="middle">LlamaCag UI</text>
+  </g>
+
+  <!-- ================= arrows: external -> boundary ================= -->
+  <!-- documents/ -> n8n : watch -->
+  <path d="M228 176 C 300 176 300 168 366 168" fill="none" stroke="#64748B" stroke-width="2" marker-end="url(#archArrow)"/>
+  <rect x="264" y="150" width="58" height="20" rx="10" fill="#0F172A"/>
+  <text x="293" y="164" font-size="13" fill="#94A3B8" text-anchor="middle">watch</text>
+
+  <!-- you/curl -> n8n : POST webhook -->
+  <path d="M242 300 C 296 288 300 214 366 202" fill="none" stroke="#64748B" stroke-width="2" marker-end="url(#archArrow)"/>
+  <rect x="140" y="345" width="204" height="22" rx="11" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+  <text x="242" y="360" font-size="12.5" fill="#94A3B8" text-anchor="middle">POST /webhook/cag/query</text>
+
+  <!-- LlamaCag UI -> cag-api -->
+  <path d="M240 452 C 470 452 560 250 638 214" fill="none" stroke="#64748B" stroke-width="2" marker-end="url(#archArrow)"/>
+  <rect x="404" y="430" width="132" height="20" rx="10" fill="#0F172A"/>
+  <text x="470" y="444" font-size="12.5" fill="#94A3B8" text-anchor="middle">HTTP → cag-api</text>
+
+  <!-- ================= arrows: inside boundary ================= -->
+  <!-- n8n -> cag-api : HTTP no creds -->
+  <path d="M566 180 L636 180" fill="none" stroke="#64748B" stroke-width="2" marker-end="url(#archArrow)"/>
+  <rect x="524" y="140" width="152" height="20" rx="10" fill="#0C1424"/>
+  <text x="600" y="154" font-size="12.5" fill="#94A3B8" text-anchor="middle">HTTP · no credentials</text>
+
+  <!-- cag-api -> llama-server : chat / tokenize / slot save+restore -->
+  <path d="M742 230 L742 286" fill="none" stroke="#22D3EE" stroke-width="2" marker-end="url(#archArrowCyan)"/>
+  <rect x="748" y="242" width="196" height="36" rx="9" fill="#0C1424" stroke="#1E3A44" stroke-width="1"/>
+  <text x="758" y="258" font-size="12.5" fill="#22D3EE">chat · tokenize ·</text>
+  <text x="758" y="273" font-size="12.5" fill="#22D3EE">slot save / restore</text>
+
+  <!-- cag-api -> Postgres -->
+  <path d="M638 212 C 566 230 548 258 544 286" fill="none" stroke="#64748B" stroke-width="2" marker-end="url(#archArrow)"/>
+  <rect x="556" y="236" width="118" height="20" rx="10" fill="#0C1424"/>
+  <text x="615" y="250" font-size="12.5" fill="#94A3B8" text-anchor="middle">documents + log</text>
+
+  <!-- n8n -> Postgres (its own tables) -->
+  <path d="M452 230 L458 286" fill="none" stroke="#64748B" stroke-width="1.75" stroke-dasharray="5 4" marker-end="url(#archArrow)"/>
+  <text x="408" y="262" font-size="12" fill="#64748B" text-anchor="middle">n8n db</text>
+
+  <!-- llama-server -> models -->
+  <path d="M842 336 L896 332" fill="none" stroke="#64748B" stroke-width="1.75" marker-end="url(#archArrow)"/>
+
+  <!-- llama-server -> kv_caches (amber) : slot-save-path -->
+  <path d="M842 362 C 910 386 950 380 998 356" fill="none" stroke="#F59E0B" stroke-width="2" marker-end="url(#archArrowAmber)"/>
+  <rect x="846" y="386" width="150" height="20" rx="10" fill="#0C1424"/>
+  <text x="921" y="400" font-size="12.5" fill="#F59E0B" text-anchor="middle">--slot-save-path</text>
+
+  <!-- ================= footnote ================= -->
+  <text x="40" y="548" font-size="14.5" fill="#94A3B8">Warm once → KV state on disk → restore on demand. n8n holds zero business logic and zero credentials; the API owns orchestration.</text>
+</svg>

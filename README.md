@@ -1,7 +1,14 @@
+<p align="center">
+  <img src="docs/images/hero.svg" alt="llama-cag-n8n — Read once. Ask forever." width="100%">
+</p>
+
 # llama-cag-n8n
 
 **Ask questions about your documents with a fully local LLM — without the model
 re-reading the document every time.**
+
+[![CI](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-34D399.svg)](LICENSE)
 
 This is a self-hosted implementation of **Cache-Augmented Generation (CAG)**: a
 document is processed by the model **once**, the resulting KV cache (the model's
@@ -14,17 +21,58 @@ for inference and cache persistence, a small FastAPI orchestrator (`cag-api`),
 [n8n](https://n8n.io/) for automation, and PostgreSQL for metadata. Works on
 Windows, macOS, and Linux — no host compilation, no external APIs.
 
-```mermaid
-flowchart LR
-    DOCS[("documents/ folder")] -- watch --> N8N["n8n<br/>:5678"]
-    YOU(("you / curl")) -- "POST /webhook/cag/query" --> N8N
-    N8N --> API["cag-api<br/>:8000"]
-    API -- "chat + slot save/restore" --> LLAMA["llama-server<br/>:8080"]
-    API --> PG[("PostgreSQL")]
-    LLAMA --- CACHE[("KV caches<br/>on disk")]
+## The economics
+
+<p align="center">
+  <img src="docs/images/warm-once.svg" alt="The expensive read happens once per document and survives restarts." width="100%">
+</p>
+
+The expensive part — the model reading the whole document — happens **exactly
+once per document**, and the resulting KV cache survives restarts. Ingesting a
+28k-token manual takes minutes on CPU; every question after that evaluates only
+a few dozen tokens. The `/query` response proves it in the `timings` block —
+after the first query, `prompt_tokens_evaluated` collapses to your question's
+length while `cache_source` reports where the state came from:
+
+```jsonc
+// POST /query {"question": "What are the safety limits in section 4?"}
+{
+  "answer": "Section 4 caps continuous load at 8 A and peak at 12 A for 10 s …",
+  "document": { "id": 7, "file_name": "manual.pdf", "n_tokens": 28400 },
+  "duration_ms": 640,
+  "timings": {
+    "prompt_tokens_evaluated": 43,      // just the question — not the 28,400-token doc
+    "prompt_tokens_from_cache": 28400,  // the whole document, reused from the KV cache
+    "answer_tokens": 96,
+    "cache_source": "memory"            // "memory" hot · "disk" restored · "recomputed" self-heal
+  }
+}
 ```
 
-### CAG vs RAG, honestly
+The very first query on a document (or the first after `cache_source: "disk"`
+following a restart) evaluates the full prefix once; from then on it's tens of
+tokens. **Numbers, not adjectives — that's the whole point.**
+
+## Architecture
+
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="Four containers in Docker Compose: n8n, cag-api, llama-server, PostgreSQL, with models and kv_caches volumes." width="100%">
+</p>
+
+Four containers, one compose file, everything bound to `127.0.0.1`. **n8n**
+watches a folder and exposes a query webhook; **cag-api** owns all
+orchestration (registry, slot assignment, self-healing); **llama-server** does
+inference and persists KV state to the `kv_caches` volume via `--slot-save-path`;
+**PostgreSQL** holds document metadata and the query log. n8n carries zero
+business logic and zero credentials — it only calls `cag-api` over the internal
+Docker network. The full sequence diagrams (warm and query paths) are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## CAG vs RAG, honestly
+
+<p align="center">
+  <img src="docs/images/cag-vs-rag.svg" alt="RAG recomputes retrieved chunks every query; CAG restores the whole-document KV cache and evaluates only your question." width="100%">
+</p>
 
 | | RAG | CAG (this project) |
 |---|---|---|
@@ -35,7 +83,51 @@ flowchart LR
 
 If your knowledge base is a handful of manuals, contracts, or specs (up to
 ~100k tokens each with the default model), CAG is simpler and often more
-accurate. If it's ten thousand documents, you want RAG — and a different repo.
+accurate — the model always sees the *entire* document, not retrieved chunks.
+If it's ten thousand documents, you want RAG — and a different repo.
+
+## Why not just Open WebUI or AnythingLLM?
+
+Because they solve a different problem, and this fills a gap none of them do.
+
+**They own retrieval.** AnythingLLM, Open WebUI, and LibreChat are excellent
+self-hosted chat UIs with document workspaces — but they are all **RAG systems**
+(chunk → embed → vector DB → retrieve per query). They shine on big corpora and
+multi-user setups, and they approximate by design: the model sees retrieved
+chunks, not the whole document. LM Studio / Ollama / Jan make running a local
+model easy and cache prompts in RAM per session, but nothing is document-pinned
+and nothing survives a restart.
+
+**This owns exact, persistent whole-document memory.** Feed it a document once;
+the model's internal state (KV cache) is persisted to disk. Every question
+afterwards — today, tomorrow, after a reboot — skips re-reading and evaluates
+only your question, against the *entire* document. Persistent KV-cache reuse is
+productized in the cloud (Anthropic/OpenAI/Gemini prompt caching) and active in
+research, but **no mainstream self-hosted tool ships it as a feature.** It's also
+automation-first: the n8n layer turns folder-drop and a webhook into the primary
+interface, not an afterthought.
+
+**Use one of them instead if** you have thousand-document knowledge bases (that's
+retrieval territory), documents bigger than the context window, or a team that
+needs multi-user auth. This project is **for** the person with a handful of dense
+reference documents — manuals, contracts, rulebooks, specs, theses — who asks
+repeated questions over weeks on consumer hardware and wants automation hooks
+around it. Knowing your lane is the point.
+
+## The family
+
+One engine, three ways to drive it:
+
+- **This stack** — the engine (`llama-server`) + a typed API (`cag-api`) +
+  n8n automation. Everything programmatic or folder-/webhook-driven lives here.
+- **[LlamaCag UI](https://github.com/VictorSteinbock/LlamaCagUI)** — the desktop
+  control room: chat, documents, stack health, model switching. *(Being rebuilt
+  against this v2 API — check the repo for status.)*
+
+Ancestry: this is a ground-up rebuild of the original
+[AbelCoplet/llama-cag-n8N](https://github.com/AbelCoplet/llama-cag-n8N), which
+had the right idea before llama.cpp's slot save/restore made honest CAG a config
+option instead of a science project.
 
 ## Quick start
 
@@ -43,8 +135,8 @@ accurate. If it's ten thousand documents, you want RAG — and a different repo.
 (or docker + compose v2) and Python 3.10+.
 
 ```bash
-git clone https://github.com/VictorSteinbock/llama-cag-n8N.git
-cd llama-cag-n8N
+git clone https://github.com/VictorSteinbock/llama-cag-n8n-reworked.git
+cd llama-cag-n8n-reworked
 
 python llamacag.py setup     # writes .env with generated secrets
 python llamacag.py start     # builds + starts the stack
@@ -80,7 +172,7 @@ python llamacag.py query "What are the safety limits in section 4?"
 
 The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
 and how many prompt tokens were actually evaluated — after the first query
-that number should be tiny. That's the whole point.
+that number should be tiny.
 
 ## The API
 
@@ -209,6 +301,8 @@ every push.
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — inference, and the slot
   save/restore API that makes honest CAG a config option instead of a science project
 - [n8n](https://n8n.io/) — the automation layer
+- [AbelCoplet/llama-cag-n8N](https://github.com/AbelCoplet/llama-cag-n8N) — the
+  original this rebuild descends from
 
 ## License
 

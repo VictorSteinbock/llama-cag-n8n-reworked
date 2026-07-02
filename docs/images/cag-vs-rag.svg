@@ -1,0 +1,157 @@
+<svg viewBox="0 0 1200 640" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="cvrGlowRed" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F87171" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#F87171" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cvrGlowGreen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="640" fill="#0F172A"/>
+
+  <!-- title -->
+  <text x="60" y="56" font-size="30" font-weight="700" fill="#E2E8F0">CAG vs RAG — where the per-query cost goes</text>
+
+  <!-- ==================== TOP LANE: RAG ==================== -->
+  <ellipse cx="880" cy="200" rx="320" ry="150" fill="url(#cvrGlowRed)"/>
+  <rect x="40" y="96" width="1120" height="228" rx="16" fill="#161F30" stroke="#334155" stroke-width="1.5"/>
+  <text x="64" y="132" font-size="21" font-weight="700" fill="#94A3B8">RAG <tspan font-weight="500" fill="#64748B">(retrieval)</tspan></text>
+
+  <!-- ingest side (RAG) -->
+  <!-- document -->
+  <g>
+    <rect x="64" y="158" width="66" height="82" rx="9" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <path d="M112 158 L130 176 h-14 a4 4 0 0 1 -4 -4 z" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+    <line x1="78" y1="196" x2="116" y2="196" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="78" y1="210" x2="116" y2="210" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="78" y1="224" x2="102" y2="224" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="97" y="258" font-size="14" fill="#94A3B8" text-anchor="middle">document</text>
+  </g>
+  <!-- arrow -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="140" y1="199" x2="168" y2="199" stroke-linecap="round"/><path d="M161 193 L170 199 L161 205" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- chunks grid -->
+  <g>
+    <rect x="178" y="170" width="20" height="20" rx="4" fill="#334155"/>
+    <rect x="202" y="170" width="20" height="20" rx="4" fill="#334155"/>
+    <rect x="226" y="170" width="20" height="20" rx="4" fill="#334155"/>
+    <rect x="178" y="194" width="20" height="20" rx="4" fill="#334155"/>
+    <rect x="202" y="194" width="20" height="20" rx="4" fill="#334155"/>
+    <rect x="226" y="194" width="20" height="20" rx="4" fill="#334155"/>
+    <text x="212" y="258" font-size="14" fill="#94A3B8" text-anchor="middle">chunks</text>
+  </g>
+  <!-- arrow -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="256" y1="199" x2="284" y2="199" stroke-linecap="round"/><path d="M277 193 L286 199 L277 205" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- embeddings -->
+  <g>
+    <rect x="294" y="176" width="70" height="46" rx="9" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <text x="329" y="197" font-size="13" fill="#94A3B8" text-anchor="middle">embed</text>
+    <text x="329" y="213" font-size="12" fill="#64748B" text-anchor="middle">vectors</text>
+    <text x="329" y="258" font-size="14" fill="#94A3B8" text-anchor="middle">embeddings</text>
+  </g>
+  <!-- arrow -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="374" y1="199" x2="400" y2="199" stroke-linecap="round"/><path d="M393 193 L402 199 L393 205" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- vector DB cylinder -->
+  <g>
+    <path d="M412 178 a30 8 0 0 1 60 0 v40 a30 8 0 0 1 -60 0 z" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <ellipse cx="442" cy="178" rx="30" ry="8" fill="#243147" stroke="#334155" stroke-width="1.5"/>
+    <text x="442" y="205" font-size="12.5" fill="#94A3B8" text-anchor="middle">vector</text>
+    <text x="442" y="258" font-size="14" fill="#94A3B8" text-anchor="middle">vector DB</text>
+  </g>
+
+  <!-- divider before per-query group -->
+  <line x1="512" y1="150" x2="512" y2="290" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 5"/>
+
+  <!-- RAG per-query group -->
+  <g>
+    <rect x="536" y="150" width="392" height="140" rx="12" fill="#0F172A" stroke="#F87171" stroke-width="1.75" stroke-opacity="0.9"/>
+    <text x="556" y="176" font-size="16" font-weight="700" fill="#F87171">every query:</text>
+
+    <!-- retrieve top-k -->
+    <rect x="556" y="192" width="128" height="72" rx="10" fill="#1E293B" stroke="#475569" stroke-width="1.5"/>
+    <text x="620" y="220" font-size="14.5" fill="#E2E8F0" text-anchor="middle">retrieve +</text>
+    <text x="620" y="240" font-size="14.5" fill="#E2E8F0" text-anchor="middle">re-process</text>
+    <text x="620" y="256" font-size="12.5" fill="#94A3B8" text-anchor="middle">top-k chunks</text>
+
+    <g stroke="#F87171" stroke-width="2" fill="none" stroke-opacity="0.8"><line x1="692" y1="228" x2="724" y2="228" stroke-linecap="round"/><path d="M717 222 L726 228 L717 234" stroke-linecap="round" stroke-linejoin="round"/></g>
+
+    <!-- answer -->
+    <rect x="732" y="200" width="176" height="56" rx="10" fill="#1E293B" stroke="#F87171" stroke-width="1.5"/>
+    <text x="820" y="226" font-size="15" fill="#E2E8F0" text-anchor="middle">answer</text>
+    <text x="820" y="245" font-size="12.5" fill="#F87171" text-anchor="middle">recomputed context</text>
+  </g>
+
+  <!-- RAG cost annotation -->
+  <rect x="948" y="150" width="196" height="140" rx="12" fill="#1B1416" stroke="#7F3536" stroke-width="1.5"/>
+  <text x="968" y="180" font-size="14.5" font-weight="700" fill="#F87171">per-query cost</text>
+  <text x="968" y="210" font-size="14" fill="#CBB6B7">recomputes the</text>
+  <text x="968" y="230" font-size="14" fill="#CBB6B7">retrieved context</text>
+  <text x="968" y="250" font-size="14" fill="#CBB6B7">every single time ·</text>
+  <text x="968" y="270" font-size="14" fill="#CBB6B7">sees top-k chunks only</text>
+
+  <!-- ==================== BOTTOM LANE: CAG ==================== -->
+  <ellipse cx="820" cy="500" rx="360" ry="150" fill="url(#cvrGlowGreen)"/>
+  <rect x="40" y="380" width="1120" height="228" rx="16" fill="#141F27" stroke="#334155" stroke-width="1.5"/>
+  <text x="64" y="416" font-size="21" font-weight="700" fill="#22D3EE">CAG <tspan font-weight="500" fill="#64748B">(this project)</tspan></text>
+
+  <!-- ingest side (CAG) -->
+  <!-- document -->
+  <g>
+    <rect x="64" y="442" width="66" height="82" rx="9" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+    <path d="M112 442 L130 460 h-14 a4 4 0 0 1 -4 -4 z" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+    <line x1="78" y1="480" x2="116" y2="480" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="78" y1="494" x2="116" y2="494" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="78" y1="508" x2="102" y2="508" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="97" y="542" font-size="14" fill="#94A3B8" text-anchor="middle">document</text>
+  </g>
+  <!-- arrow -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="140" y1="483" x2="170" y2="483" stroke-linecap="round"/><path d="M163 477 L172 483 L163 489" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- model reads once (cyan) -->
+  <g>
+    <rect x="180" y="452" width="150" height="62" rx="10" fill="#0E2830" stroke="#22D3EE" stroke-width="1.75"/>
+    <text x="255" y="480" font-size="15" font-weight="700" fill="#22D3EE" text-anchor="middle">model reads</text>
+    <text x="255" y="500" font-size="15" font-weight="700" fill="#22D3EE" text-anchor="middle">it ONCE</text>
+    <text x="255" y="542" font-size="14" fill="#94A3B8" text-anchor="middle">whole document</text>
+  </g>
+  <!-- arrow -->
+  <g stroke="#475569" stroke-width="2" fill="none"><line x1="340" y1="483" x2="368" y2="483" stroke-linecap="round"/><path d="M361 477 L370 483 L361 489" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <!-- amber KV state saved (cylinder) -->
+  <g>
+    <path d="M378 462 a30 8 0 0 1 60 0 v40 a30 8 0 0 1 -60 0 z" fill="#2A2114" stroke="#F59E0B" stroke-width="1.75"/>
+    <ellipse cx="408" cy="462" rx="30" ry="8" fill="#3A2C15" stroke="#F59E0B" stroke-width="1.75"/>
+    <text x="408" y="488" font-size="12.5" font-weight="700" fill="#F59E0B" text-anchor="middle">KV</text>
+    <text x="408" y="504" font-size="11.5" fill="#D9A441" text-anchor="middle">state</text>
+    <text x="408" y="542" font-size="14" fill="#F59E0B" text-anchor="middle">saved to disk</text>
+  </g>
+
+  <!-- divider before per-query group (aligned with RAG's) -->
+  <line x1="512" y1="434" x2="512" y2="574" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 5"/>
+
+  <!-- CAG per-query group (same footprint as RAG's for comparison) -->
+  <g>
+    <rect x="536" y="434" width="392" height="140" rx="12" fill="#0F172A" stroke="#34D399" stroke-width="1.75"/>
+    <text x="556" y="460" font-size="16" font-weight="700" fill="#34D399">every query:</text>
+
+    <!-- just your question -->
+    <rect x="556" y="478" width="150" height="72" rx="10" fill="#1E293B" stroke="#475569" stroke-width="1.5"/>
+    <text x="631" y="512" font-size="14.5" fill="#E2E8F0" text-anchor="middle">your question</text>
+    <text x="631" y="532" font-size="12.5" fill="#94A3B8" text-anchor="middle">(that's all)</text>
+
+    <g stroke="#34D399" stroke-width="2" fill="none"><line x1="714" y1="514" x2="746" y2="514" stroke-linecap="round"/><path d="M739 508 L748 514 L739 520" stroke-linecap="round" stroke-linejoin="round"/></g>
+
+    <!-- answer -->
+    <rect x="754" y="486" width="154" height="56" rx="10" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <text x="831" y="512" font-size="15" fill="#E2E8F0" text-anchor="middle">answer</text>
+    <text x="831" y="531" font-size="12.5" fill="#34D399" text-anchor="middle">full doc in context</text>
+  </g>
+
+  <!-- CAG cost annotation -->
+  <rect x="948" y="434" width="196" height="140" rx="12" fill="#0E1F18" stroke="#2F6B52" stroke-width="1.5"/>
+  <text x="968" y="464" font-size="14.5" font-weight="700" fill="#34D399">per-query cost</text>
+  <text x="968" y="494" font-size="14" fill="#A9D9C6">≈40 tokens</text>
+  <text x="968" y="514" font-size="14" fill="#A9D9C6">evaluated per query ·</text>
+  <text x="968" y="534" font-size="14" fill="#A9D9C6">sees the whole</text>
+  <text x="968" y="554" font-size="14" fill="#A9D9C6">document, always</text>
+</svg>
