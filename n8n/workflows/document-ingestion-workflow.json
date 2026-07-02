@@ -1,0 +1,188 @@
+{
+  "name": "CAG Document Ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CAG Document Ingestion\n\nWatches `/data/documents` (your `DOCUMENTS_FOLDER` from `.env`, default `./documents`).\n\nDrop a `.txt`, `.md`, `.html`, or text-based `.pdf` in that folder and it is uploaded to cag-api, which extracts the text, warms the model's KV cache once, and saves it to disk. After that, queries against the document skip re-reading it entirely.\n\nWarming happens at model speed — a large document on CPU can take minutes. Check `GET http://localhost:8000/documents` for status.\n\nPolling is enabled because Docker bind mounts (especially on Windows) don't deliver native file events reliably.",
+        "height": 360,
+        "width": 440
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000001",
+      "name": "How it works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-300, -220]
+    },
+    {
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "/data/documents",
+        "events": ["add"],
+        "options": {
+          "usePolling": true,
+          "awaitWriteFinish": true,
+          "ignored": "**/.*"
+        }
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000002",
+      "name": "Watch Documents Folder",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [180, 0]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.path }}",
+        "options": {}
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000003",
+      "name": "Read New File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://cag-api:8000/documents",
+        "contentType": "multipart-form-data",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000004",
+      "name": "Upload To CAG API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ing-ok-1",
+              "name": "ingested",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "ing-ok-2",
+              "name": "document_id",
+              "value": "={{ $json.id }}",
+              "type": "number"
+            },
+            {
+              "id": "ing-ok-3",
+              "name": "file_name",
+              "value": "={{ $json.file_name }}",
+              "type": "string"
+            },
+            {
+              "id": "ing-ok-4",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "ing-ok-5",
+              "name": "n_tokens",
+              "value": "={{ $json.n_tokens }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000005",
+      "name": "Ingestion Succeeded",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ing-err-1",
+              "name": "ingested",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "ing-err-2",
+              "name": "error",
+              "value": "={{ $json.error?.message ?? $json.error ?? 'Upload failed' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b2e51c20-0000-4000-8000-000000000006",
+      "name": "Ingestion Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [920, 120]
+    }
+  ],
+  "connections": {
+    "Watch Documents Folder": {
+      "main": [
+        [
+          {
+            "node": "Read New File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read New File": {
+      "main": [
+        [
+          {
+            "node": "Upload To CAG API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload To CAG API": {
+      "main": [
+        [
+          {
+            "node": "Ingestion Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ingestion Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}

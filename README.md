@@ -1,313 +1,211 @@
-![Overview](docs/images/Overview.png)
-
 # llama-cag-n8n
 
-A comprehensive implementation of Context-Augmented Generation (CAG) using llama.cpp and n8n, designed to leverage large context window models (128K+ tokens) for storing and querying entire documents.
+**Ask questions about your documents with a fully local LLM — without the model
+re-reading the document every time.**
 
-## What is llama-cag-n8n?
+This is a self-hosted implementation of **Cache-Augmented Generation (CAG)**: a
+document is processed by the model **once**, the resulting KV cache (the model's
+internal state after reading it) is **saved to disk**, and every later question
+**restores** that state — so only your question and the answer are ever computed
+again. On CPU hardware, that turns minutes of prompt processing into seconds.
 
-This package provides a complete implementation of Context-Augmented Generation (CAG) using llama.cpp and n8n. Unlike traditional RAG systems that need to retrieve and reprocess document chunks for every query, CAG precomputes and stores Key-Value (KV) caches for entire large documents, offering:
+Everything runs in Docker: [llama.cpp's `llama-server`](https://github.com/ggml-org/llama.cpp)
+for inference and cache persistence, a small FastAPI orchestrator (`cag-api`),
+[n8n](https://n8n.io/) for automation, and PostgreSQL for metadata. Works on
+Windows, macOS, and Linux — no host compilation, no external APIs.
 
-- ✅ **Process massive documents** - Handle documents up to 128K tokens with large context window models
-- ✅ **Faster responses** - No need to reprocess documents for each query
-- ✅ **More accurate answers** - Direct access to the entire document context
-- ✅ **Lower resource usage** - Only processes documents once
-- ✅ **Works offline** - No need for external APIs
-- ✅ **Mac compatible** - Optimized for Apple Silicon and Intel Macs
+```mermaid
+flowchart LR
+    DOCS[("documents/ folder")] -- watch --> N8N["n8n<br/>:5678"]
+    YOU(("you / curl")) -- "POST /webhook/cag/query" --> N8N
+    N8N --> API["cag-api<br/>:8000"]
+    API -- "chat + slot save/restore" --> LLAMA["llama-server<br/>:8080"]
+    API --> PG[("PostgreSQL")]
+    LLAMA --- CACHE[("KV caches<br/>on disk")]
+```
 
-## Quick Start
+### CAG vs RAG, honestly
 
-### Step 1: Clone the repository
+| | RAG | CAG (this project) |
+|---|---|---|
+| Document handling | chunk → embed → vector DB → retrieve per query | model reads the whole document once, state cached |
+| Per-query cost | retrieval + re-processing of retrieved chunks | question + answer tokens only |
+| Answer context | top-k chunks | the entire document, always |
+| Corpus size | effectively unlimited | **must fit the context window** — that's the trade-off |
+
+If your knowledge base is a handful of manuals, contracts, or specs (up to
+~100k tokens each with the default model), CAG is simpler and often more
+accurate. If it's ten thousand documents, you want RAG — and a different repo.
+
+## Quick start
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+(or docker + compose v2) and Python 3.10+.
 
 ```bash
-git clone https://github.com/your-username/llama-cag-n8n.git  <!-- Replace 'your-username' with your actual GitHub username -->
-cd llama-cag-n8n
+git clone https://github.com/VictorSteinbock/llama-cag-n8N.git
+cd llama-cag-n8N
+
+python llamacag.py setup     # writes .env with generated secrets
+python llamacag.py start     # builds + starts the stack
 ```
 
-### Step 2: Set up environment variables
+First boot downloads the default model (Gemma 4 12B QAT, ~6.5 GB) from Hugging
+Face into a Docker volume; after that everything runs offline. Watch progress
+with `python llamacag.py logs llama-server`, and confirm readiness with
+`python llamacag.py status`.
+
+**Set up n8n (one-time, ~2 minutes):**
+
+1. Open http://localhost:5678 and create the local owner account.
+2. Import the three workflows from [`n8n/workflows/`](n8n/workflows/)
+   (*Workflows → ⋯ → Import from file*).
+3. Activate each one. **No credentials to configure** — the workflows only call
+   `cag-api` over the internal Docker network.
+
+**Use it:**
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# 1. Make a document queryable (or just drop a file into ./documents/)
+curl -X POST http://localhost:8000/documents -F "file=@manual.pdf"
 
-# Edit the file with your preferred settings
-nano .env
-```
-
-**CRITICAL: You MUST configure these values in your `.env` file:**
-
-```
-# Database credentials - CHANGE THESE!
-DB_PASSWORD=your_secure_password_here
-
-# n8n secrets - CHANGE THESE! (generate with: openssl rand -hex 16)
-N8N_ENCRYPTION_KEY=your_secure_encryption_key
-N8N_USER_MANAGEMENT_JWT_SECRET=your_jwt_secret
-
-# LARGE CONTEXT WINDOW MODEL CONFIGURATION
-LLAMACPP_MODEL_PATH=~/Documents/llama.cpp/models/gemma-4b.gguf
-LLAMACPP_MODEL_NAME=gemma-4b.gguf
-LLAMACPP_MAX_CONTEXT=128000  # 128K context window
-```
-
-### Step 3: Run the setup script
-
-```bash
-python setup.py
-```
-
-### Step 4: Start the services
-
-```bash
-python start_services.py --profile cpu
-```
-
-### Step 5: Set up n8n (http://localhost:5678/)
-1. Create a local account
-2. Import workflows from n8n/workflows/
-3. Configure the PostgreSQL credential:
-   - Host: `db`
-   - Database: `llamacag`
-   - User: `llamacag`
-   - Password: `your_secure_password_here` (from .env)
-4. Activate the workflows
-
-## Understanding CAG with Large Context Models
-
-Context-Augmented Generation (CAG) is an alternative to traditional RAG that leverages large context window models:
-
-1. **Entire Document Processing**: Rather than chunking documents into small pieces, we process much larger sections or entire documents at once.
-
-2. **KV Cache Storage**: The system creates and stores KV (Key-Value) caches that capture the model's state after processing the document. This is effectively "perfect memory" of the document content.
-
-3. **Direct Query Against Document Context**: When querying, we load the pre-computed KV cache, giving the model complete access to the document's content without reprocessing.
-
-4. **Compared to Traditional RAG**:
-   - RAG: Chunks → Embeds → Vector DB → Retrieves chunks → Combines → Processes
-   - CAG: Entire document → KV Cache → Direct access to full context
-
-## System Architecture
-
-The system consists of several components:
-
-1. **Document Processing Workflow**: Processes documents and creates KV caches
-2. **CAG Query Workflow**: Queries the model using preloaded KV caches
-3. **CAG Bridge**: A Python service that connects n8n to the llama.cpp scripts
-4. **Database**: Stores metadata about documents and queries
-
-### Master KV Cache Approach
-
-For optimal performance, the system can use a "master KV cache" approach:
-- All relevant documents are combined into a single knowledge base
-- This is processed into a single master KV cache
-- All queries are run against this master cache
-- This approach provides the most comprehensive context for answers
-
-## Supported Large Context Window Models
-
-For optimal results, use models with large context windows:
-
-| Model | Context Size | Recommended For |
-|-------|-------------|----------------|
-| Gemma 4B | 128K tokens | General purpose, excellent performance/size ratio |
-| DeepSeek v2 7B | 128K tokens | More powerful reasoning |
-| Mistral Large 2 7B | 128K tokens | Strong reasoning capabilities |
-| Llama 3 8B | 128K tokens | Strong overall performance |
-
-The default configuration uses Gemma 4B but you can easily switch by changing the `LLAMACPP_MODEL_PATH` and `LLAMACPP_MODEL_NAME` in your `.env` file.
-
-## Detailed Installation
-
-### Prerequisites
-
-- Python 3.8+
-- Git
-- Docker Desktop
-- 16GB RAM recommended (8GB minimum)
-- 20GB free disk space
-
-### Step-by-Step Setup
-
-#### 1. Clone the repository and navigate to it
-```bash
-git clone https://github.com/your-username/llama-cag-n8n.git  <!-- Replace 'your-username' with your actual GitHub username -->
-cd llama-cag-n8n
-```
-
-#### 2. Configure your environment
-Copy and edit the .env file:
-```bash
-cp .env.example .env
-nano .env
-```
-
-Required configurations:
-```
-# Database configuration
-DB_PASSWORD=your_secure_password_here  # CHANGE THIS!
-
-# n8n configuration 
-N8N_ENCRYPTION_KEY=your_secure_encryption_key  # CHANGE THIS!
-N8N_USER_MANAGEMENT_JWT_SECRET=your_jwt_secret  # CHANGE THIS!
-
-# Large context window model configuration
-LLAMACPP_MODEL_PATH=~/Documents/llama.cpp/models/gemma-4b.gguf
-LLAMACPP_MODEL_NAME=gemma-4b.gguf
-LLAMACPP_MAX_CONTEXT=128000  # 128K tokens
-```
-
-#### 3. Run the setup script
-```bash
-python setup.py
-```
-This script will:
-- Install needed dependencies
-- Install llama.cpp
-- Download your chosen LLM model
-- Set up project folders
-- Create necessary configuration files
-
-#### 4. Start the services
-```bash
-python start_services.py --profile cpu
-```
-
-#### 5. Create the CAG Bridge directory
-```bash
-mkdir -p bridge
-```
-
-#### 6. Copy the CAG Bridge script
-Create the file `bridge/cag_bridge.py` with the Python code provided in this repository, then make it executable:
-```bash
-chmod +x bridge/cag_bridge.py
-```
-
-#### 7. Configure n8n
-1. Open http://localhost:5678/
-2. Create a local account
-3. Import workflows:
-   - Go to Workflows → Import from File
-   - Select workflow files in n8n/workflows/
-4. Configure PostgreSQL credential:
-   - Host: `db`
-   - Database: `llamacag` 
-   - User: `llamacag`
-   - Password: Your DB_PASSWORD from .env
-5. Activate workflows by clicking "Active" toggle
-
-## Usage
-
-### Processing Documents to Create KV Caches
-
-To process documents with CAG:
-
-1. Place documents (PDF, TXT, MD, HTML) in the watch folder:
-   - Default location: `~/Documents/cag_documents`
-
-2. The system will automatically:
-   - Detect new documents
-   - Extract text
-   - Process with the large context window model
-   - Create KV caches
-   - Store metadata in the database
-
-Alternatively, you can create a master KV cache by processing a combined document containing all your knowledge.
-
-### Querying Using KV Caches
-
-You can query your documents through the API endpoint:
-
-```bash
+# 2. Ask questions — via n8n's webhook…
 curl -X POST http://localhost:5678/webhook/cag/query \
   -H "Content-Type: application/json" \
-  -d '{
-    "query": "Summarize the key points from the technical documentation"
-  }'
+  -d '{"question": "What are the safety limits in section 4?"}'
+
+# …or directly, or with the helper:
+python llamacag.py query "What are the safety limits in section 4?"
 ```
 
-This will use the master KV cache to answer your question based on the preloaded knowledge.
+The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
+and how many prompt tokens were actually evaluated — after the first query
+that number should be tiny. That's the whole point.
 
-This will use the master KV cache to answer your question based on the preloaded knowledge.
+## The API
 
-### Batch Processing Documents
+Interactive docs at http://localhost:8000/docs.
 
-For large document collections:
+| Endpoint | What it does |
+|----------|--------------|
+| `POST /documents` | Multipart file upload (`.txt` `.md` `.html` text-based `.pdf`) → extract, token-count, warm the KV cache, persist it |
+| `POST /documents/text` | Same for raw text: `{"text": "...", "file_name": "notes.txt"}` |
+| `GET /documents` | Registry with status, token counts, usage |
+| `DELETE /documents/{id}` | Remove document + its cache file |
+| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x}` — no `document_id` means the most recently cached document |
+| `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
+| `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 
-```bash
-# Process all PDF files in a directory
-python scripts/python/batch_process.py --dir /path/to/documents --extension pdf
-```
+Duplicate content (same SHA-256) is detected and never re-warmed. A document
+that doesn't fit the context window is rejected at ingest with a `413` telling
+you the measured token count and which knob to raise.
 
-### Managing KV Caches
+## Choosing a model (state of play, mid-2026)
 
-To view your KV caches:
+Set `LLAMA_MODEL` in `.env` to any GGUF on Hugging Face (`repo[:quant]`),
+then `python llamacag.py stop && python llamacag.py start`:
 
-```bash
-# List all KV caches
-python scripts/python/list_caches.py
+| Model | Context | Download | Fits comfortably in | Notes |
+|-------|---------|----------|---------------------|-------|
+| `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* | 262k | 6.5 GB | 16 GB RAM | Google's official QAT build — Q4 with near-full quality, Apache 2.0 |
+| `google/gemma-4-E4B-it-qat-q4_0-gguf` | 128k+ | ~3 GB | 8 GB RAM | Edge-class Gemma 4, lightest sensible option |
+| `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | 256k+ | ~5.5 GB | 16 GB RAM | Strongest small dense alternative |
+| `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | 256k | ~15 GB | 32 GB RAM | MoE: 26B-class answers at ~4B-active speed — best quality-per-second on big-RAM CPU boxes |
+| `ggml-org/GLM-4.7-Flash-GGUF:Q4_K` | 202k | ~27 GB | 64 GB RAM | Workstation class |
 
-# List caches sorted by size
-python scripts/python/list_caches.py --sort size
-```
+Two knobs matter alongside the model:
+
+- **`LLAMA_CTX_SIZE`** (default **65536**) — total context, split across slots;
+  each document must fit `ctx ÷ slots − 1024`. KV memory scales with it, but
+  **`LLAMA_CACHE_TYPE_KV=q8_0`** (the default) halves that at negligible
+  quality cost — this is why 64k is now an affordable default.
+- **`CAG_SLOTS`** (default **1**) — how many documents stay *hot in RAM* at
+  once. With 2–4 slots, alternating between documents never touches disk;
+  llama-server divides the context between them.
+
+**Changing model or quant invalidates existing caches**; they self-heal
+(recompute + re-save) on their next query.
+
+### GPU acceleration
+
+- **NVIDIA:** `python llamacag.py start --gpu` (CUDA image; NVIDIA Container
+  Toolkit required — bundled with Docker Desktop on Windows).
+- **Intel Arc / AMD:** `python llamacag.py start --vulkan` — passes `/dev/dri`
+  through, so it works on **Linux hosts**. Docker Desktop's VM has no `/dev/dri`;
+  on Windows laptops (including Intel Arc iGPUs) run the CPU stack — a modern
+  multi-core CPU handles the 4–12B class fine, and CAG means the expensive
+  prompt processing happens only once per document anyway.
+
+## Configuration
+
+Everything lives in `.env` (created by `setup`; see [.env.example](.env.example)
+for all knobs and comments). The defaults are sensible; the ones you might touch:
+
+| Variable | Default | |
+|----------|---------|---|
+| `LLAMA_MODEL` | `google/gemma-4-12B-it-qat-q4_0-gguf` | Model to download & serve |
+| `LLAMA_CTX_SIZE` | `65536` | Total context (split across slots) |
+| `CAG_SLOTS` | `1` | Documents kept hot in RAM simultaneously |
+| `LLAMA_CACHE_TYPE_KV` | `q8_0` | KV cache precision (`f16` to disable quantization) |
+| `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
+| `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
+| `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
+| `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
 
 ## Troubleshooting
 
-### Common Issues
+- **`status` shows llama-server unreachable right after start** — it's
+  downloading the model. `python llamacag.py logs llama-server` shows progress.
+- **Ingest returns 413 (document too large)** — the error includes the measured
+  token count; raise `LLAMA_CTX_SIZE` in `.env` and restart, or split the file.
+- **Everything is slow / OOM on Windows** — Docker Desktop's WSL2 VM defaults to
+  half your RAM. The default model + 64k context wants ~10 GB in the VM; give it
+  that (Settings → Resources, or `.wslconfig`), or lower `LLAMA_CTX_SIZE`, or
+  switch to the E4B model.
+- **Dropped a file but nothing happened** — is the *CAG Document Ingestion*
+  workflow activated in n8n? Executions tab shows each attempt and any error.
+  Warming a big document on CPU takes minutes: check `GET /documents` status.
+- **First query after a restart is slower than the rest** — that's the one-time
+  disk restore of the KV cache (still far cheaper than re-reading the document).
+  If you see `cache_source: "recomputed"`, the cache file was lost/invalid and
+  was rebuilt automatically.
 
-#### "Model exceeds memory capacity"
-- If you're using a 128K token model but your system doesn't have enough RAM:
-  - Try using a smaller model (like Gemma 2B) or a more quantized version (Q4_0)
-  - Reduce LLAMACPP_MAX_CONTEXT in .env (e.g., to 64000)
-  - Increase your system's swap space
+## Project layout
 
-#### "Document processing takes too long"
-- Large context window models require more processing power
-- For faster processing:
-  - Use a GPU if available (use `--profile gpu-nvidia` when starting services)
-  - Adjust LLAMACPP_THREADS in .env to match your CPU core count
+```
+├── api/                    # cag-api: FastAPI orchestrator (registry, slots, self-healing)
+│   ├── app/                #   config / db / extract / llama client / cag engine / routes
+│   └── tests/              #   unit + API tests (pytest, no services needed)
+├── database/               # schema (documents, query_log) + n8n DB bootstrap
+├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
+├── n8n/workflows/          # 3 importable workflows: ingestion, query, maintenance
+├── docker-compose.yml      # llama-server + cag-api + n8n + postgres
+├── docker-compose.gpu.yml  # NVIDIA (CUDA) override
+├── docker-compose.vulkan.yml # Intel/AMD GPU override (Linux hosts)
+└── llamacag.py             # setup / start / stop / status / logs / query
+```
 
-#### "llama.cpp binary not found"
-- Run `scripts/bash/install_llamacpp.sh` to install llama.cpp
-- Check your LLAMACPP_PATH in .env
+## Upgrading from v1
 
-#### "Can't connect to database"
-- Check that PostgreSQL is running with `docker ps`
-- Verify credentials in .env
+v2 is a rebuild, not an upgrade — v1's KV caches never worked (its scripts
+called llama.cpp flags that don't exist) so there is nothing to migrate. If you
+ran v1: `docker compose down -v` on the old checkout, pull, then follow the
+quick start. The full reasoning is in [docs/PRD.md](docs/PRD.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-#### "Model not found"
-- The setup script attempts to download Gemma 4B automatically
-- If this fails, manually download your preferred model to the path specified in LLAMACPP_MODEL_PATH
+## Development
 
-### Stopping Services
-
-To stop all services:
 ```bash
-python start_services.py --stop
+pip install -e "./api[dev]"
+pytest api            # 32 tests, no Docker needed
+ruff check api
 ```
 
-## Repository Structure
-
-```
-llama-cag-n8n/
-├── .env.example               # Template for environment variables
-├── bridge/                    # CAG bridge service
-│   └── cag_bridge.py          # Python bridge between n8n and llama.cpp
-├── database/
-│   └── schema.sql             # Database schema for CAG system
-├── docker-compose.yml         # Docker configuration 
-├── docs/
-│   └── images/                # Documentation images and diagrams
-├── n8n/
-│   └── workflows/             # Ready-to-import n8n workflows
-├── scripts/
-│   ├── bash/                  # Bash scripts for llama.cpp operations
-│   └── python/                # Python utility scripts
-├── setup.py                   # Installation script
-└── start_services.py          # Service management script
-```
+CI runs lint, tests, workflow JSON validation, and a compose config check on
+every push.
 
 ## Acknowledgements
 
-- [llama.cpp](https://github.com/ggerganov/llama.cpp) for enabling local LLM inference with large context windows
-- [n8n](https://n8n.io/) for the workflow automation platform
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — inference, and the slot
+  save/restore API that makes honest CAG a config option instead of a science project
+- [n8n](https://n8n.io/) — the automation layer

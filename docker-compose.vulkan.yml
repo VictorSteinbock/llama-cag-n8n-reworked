@@ -1,0 +1,27 @@
+# Vulkan GPU override — Intel Arc (including integrated) and AMD GPUs. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.vulkan.yml up -d
+# or simply: python llamacag.py start --vulkan
+#
+# Reality check: this passes the host's /dev/dri render nodes into the
+# container, which works on LINUX hosts with GPU drivers installed. Docker
+# Desktop on Windows/macOS runs containers in a VM without /dev/dri — there
+# this override will fail to start; run the CPU stack instead (a Core Ultra
+# CPU is respectable for 4-12B models).
+
+services:
+  llama-server:
+    image: ${LLAMA_IMAGE_VULKAN:-ghcr.io/ggml-org/llama.cpp:server-vulkan}
+    devices:
+      - /dev/dri:/dev/dri
+    command: >
+      -hf ${LLAMA_MODEL:-google/gemma-4-12B-it-qat-q4_0-gguf}
+      --ctx-size ${LLAMA_CTX_SIZE:-65536}
+      --parallel ${CAG_SLOTS:-1}
+      --cache-type-k ${LLAMA_CACHE_TYPE_KV:-q8_0}
+      --cache-type-v ${LLAMA_CACHE_TYPE_KV:-q8_0}
+      --slot-save-path /caches
+      --host 0.0.0.0
+      --port 8080
+      --threads ${LLAMA_THREADS:--1}
+      --gpu-layers ${LLAMA_GPU_LAYERS:-999}
+      ${LLAMA_EXTRA_ARGS:-}

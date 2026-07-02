@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: Lint + test cag-api
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "./api[dev]"
+      - run: ruff check api
+      - run: pytest api -q
+
+  validate:
+    name: Validate workflows + compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Workflow JSON is valid and uses no deprecated nodes
+        run: |
+          python - <<'EOF'
+          import json, pathlib, sys
+          deprecated = {"n8n-nodes-base.function", "n8n-nodes-base.cron",
+                        "n8n-nodes-base.executeCommand", "n8n-nodes-base.readBinaryFile",
+                        "n8n-nodes-base.writeBinaryFile"}
+          failed = False
+          for path in pathlib.Path("n8n/workflows").glob("*.json"):
+              data = json.loads(path.read_text(encoding="utf-8"))
+              names = {n["name"] for n in data["nodes"]}
+              bad = {n["type"] for n in data["nodes"]} & deprecated
+              if bad:
+                  print(f"{path}: deprecated nodes {bad}"); failed = True
+              for source, outputs in data.get("connections", {}).items():
+                  targets = [c["node"] for group in outputs.get("main", []) for c in group]
+                  missing = [t for t in [source, *targets] if t not in names]
+                  if missing:
+                      print(f"{path}: connection references unknown nodes {missing}"); failed = True
+              print(f"OK {path} ({len(data['nodes'])} nodes)")
+          sys.exit(1 if failed else 0)
+          EOF
+      - name: docker compose config
+        env:
+          DB_PASSWORD: ci-only
+          N8N_ENCRYPTION_KEY: ci-only
+          N8N_USER_MANAGEMENT_JWT_SECRET: ci-only
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.gpu.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.vulkan.yml config -q
