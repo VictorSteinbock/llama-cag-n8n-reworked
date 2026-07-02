@@ -2,6 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -27,11 +28,20 @@ class TextIngestRequest(BaseModel):
     file_name: str = Field(default="inline.txt", max_length=255)
 
 
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1)
+
+
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1)
     document_id: int | None = None
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    # Prior conversation turns (oldest first). The document prefix plus the
+    # growing history is reused from the KV cache incrementally, so multi-turn
+    # chat stays cheap: only the newest tokens are ever evaluated.
+    history: list[ChatTurn] | None = Field(default=None, max_length=50)
 
 
 def create_app(engine: CagEngine | None = None) -> FastAPI:
@@ -105,7 +115,7 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
                 "POST /documents/text {text, file_name?}",
                 "GET /documents",
                 "DELETE /documents/{id}",
-                "POST /query {question, document_id?, max_tokens?, temperature?}",
+                "POST /query {question, document_id?, max_tokens?, temperature?, history?}",
                 "POST /maintenance",
             ],
         }
@@ -144,6 +154,7 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
             document_id=body.document_id,
             max_tokens=body.max_tokens,
             temperature=body.temperature,
+            history=[turn.model_dump() for turn in body.history] if body.history else None,
         )
 
     @app.post("/maintenance")

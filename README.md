@@ -92,7 +92,7 @@ Interactive docs at http://localhost:8000/docs.
 | `POST /documents/text` | Same for raw text: `{"text": "...", "file_name": "notes.txt"}` |
 | `GET /documents` | Registry with status, token counts, usage |
 | `DELETE /documents/{id}` | Remove document + its cache file |
-| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x}` — no `document_id` means the most recently cached document |
+| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …]}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange) |
 | `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
 | `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 

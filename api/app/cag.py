@@ -174,6 +174,7 @@ class CagEngine:
         document_id: int | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        history: list[dict] | None = None,
     ) -> dict:
         if document_id is not None:
             doc = self._db.get_document(document_id, with_content=True)
@@ -193,15 +194,20 @@ class CagEngine:
         )
         started = time.monotonic()
 
+        # History sits between the (cached) document prefix and the new
+        # question; identical earlier turns are prefix-matched in the KV cache,
+        # so each round only evaluates the newest exchange.
+        messages = [
+            self._system_message(doc["file_name"], doc["content"]),
+            *(history or []),
+            {"role": "user", "content": question},
+        ]
         try:
             with self._lock:
                 slot, cache_source = self._make_hot(doc)
                 healed = cache_source == "recomputed"
                 result = self._llama.chat(
-                    [
-                        self._system_message(doc["file_name"], doc["content"]),
-                        {"role": "user", "content": question},
-                    ],
+                    messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     slot_id=slot,

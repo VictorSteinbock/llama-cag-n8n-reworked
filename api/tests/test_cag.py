@@ -89,6 +89,23 @@ def test_query_without_documents_raises(engine):
         engine.query("Anyone home?")
 
 
+def test_query_threads_history_between_document_and_question(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    history = [
+        {"role": "user", "content": "What is the capital?"},
+        {"role": "assistant", "content": "Fredville."},
+    ]
+
+    engine.query("And its population?", history=history)
+
+    roles = [m["role"] for m in fake_llama.last_messages]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert fake_llama.last_messages[1]["content"] == "What is the capital?"
+    assert fake_llama.last_messages[-1]["content"] == "And its population?"
+    # The cached document prefix stays byte-identical regardless of history.
+    assert "<document" in fake_llama.last_messages[0]["content"]
+
+
 def test_query_failure_is_logged(engine, fake_llama, fake_db):
     engine.ingest_text("facts.txt", DOC)
 

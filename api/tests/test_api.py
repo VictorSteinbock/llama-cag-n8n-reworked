@@ -74,6 +74,26 @@ def test_query_validation_is_422(client):
     assert (
         client.post("/query", json={"question": "q", "temperature": 9}).status_code == 422
     )
+    bad_role = [{"role": "system", "content": "sneaky"}]
+    assert (
+        client.post("/query", json={"question": "q", "history": bad_role}).status_code == 422
+    )
+
+
+def test_query_accepts_conversation_history(client):
+    client.post("/documents/text", json={"text": "Fredville facts."})
+    response = client.post(
+        "/query",
+        json={
+            "question": "And?",
+            "history": [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["answer"] == "the answer"
 
 
 def test_delete_document(client):

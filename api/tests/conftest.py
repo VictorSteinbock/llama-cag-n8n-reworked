@@ -133,6 +133,7 @@ class FakeLlama:
 
     def chat(self, messages, *, max_tokens, temperature, slot_id=0, warm=False):
         self.calls.append(("chat", messages[0]["content"][:60], warm, slot_id))
+        self.last_messages = messages
         return {
             "content": self.answer,
             "timings": {"prompt_n": 12, "cache_n": 480, "predicted_n": 20},
