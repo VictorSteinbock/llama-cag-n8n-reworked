@@ -209,3 +209,7 @@ every push.
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — inference, and the slot
   save/restore API that makes honest CAG a config option instead of a science project
 - [n8n](https://n8n.io/) — the automation layer
+
+## License
+
+[MIT](LICENSE)
