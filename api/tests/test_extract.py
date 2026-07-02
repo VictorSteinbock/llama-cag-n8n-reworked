@@ -41,6 +41,58 @@ def test_invalid_pdf_rejected():
         extract_text("fake.pdf", b"not a pdf at all")
 
 
+def test_pdf_extraction_non_pypdf_error_becomes_415(monkeypatch):
+    # A valid PDF that PdfReader opens, but whose page extraction raises a
+    # non-PyPdfError (e.g. DependencyError, or a bare KeyError/TypeError on a
+    # corrupt content stream). This must surface as UnsupportedDocumentError
+    # (-> 415), not an unhandled exception (-> 500).
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.errors import DependencyError
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buf = io.BytesIO()
+    writer.write(buf)
+    pdf_bytes = buf.getvalue()
+
+    from pypdf._page import PageObject
+
+    def boom(self, *args, **kwargs):
+        raise DependencyError("PyCryptodome is required for this PDF")
+
+    monkeypatch.setattr(PageObject, "extract_text", boom)
+
+    with pytest.raises(UnsupportedDocumentError, match="Could not read PDF"):
+        extract_text("needs-dep.pdf", pdf_bytes)
+
+
+def test_pdf_with_some_empty_pages_keeps_the_text(monkeypatch):
+    # A multi-page PDF where some pages have no extractable text must still
+    # return the text from the pages that do, not error.
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf._page import PageObject
+
+    writer = PdfWriter()
+    for _ in range(3):
+        writer.add_blank_page(width=200, height=200)
+    buf = io.BytesIO()
+    writer.write(buf)
+    pdf_bytes = buf.getvalue()
+
+    calls = {"n": 0}
+
+    def sometimes_empty(self, *args, **kwargs):
+        calls["n"] += 1  # only the second of three pages has text
+        return "page two body" if calls["n"] == 2 else ""
+
+    monkeypatch.setattr(PageObject, "extract_text", sometimes_empty)
+    assert extract_text("mixed.pdf", pdf_bytes) == "page two body"
+
+
 def test_file_suffix_handles_windows_paths():
     assert file_suffix(r"C:\Users\vp\Documents\Report.PDF") == ".pdf"
     assert file_suffix("/data/documents/readme.md") == ".md"

@@ -341,7 +341,14 @@ class CagEngine:
                 orphans_failed.append({"file": name, "error": str(exc)})
 
         missing = sorted(known - set(on_disk))  # will self-heal on next query
-        cache_bytes = sum(p.stat().st_size for p in on_disk.values() if p.exists())
+        cache_bytes = 0
+        for p in on_disk.values():
+            try:
+                cache_bytes += p.stat().st_size
+            except OSError:
+                # A concurrent delete_document may unlink a cache file between the
+                # glob above and this stat; a missing file just contributes 0 bytes.
+                pass
         return {
             "orphan_files_removed": orphans_removed,
             "orphan_files_failed": orphans_failed,
@@ -352,10 +359,15 @@ class CagEngine:
         }
 
     def health(self) -> dict:
+        # Snapshot the slot map under the lock: a concurrent query/ingest/delete
+        # mutates self._slots, and iterating it live would raise "dictionary
+        # changed size during iteration" and 500 the health endpoint.
+        with self._lock:
+            hot = dict(sorted(self._slots.items()))
         report: dict = {
             "status": "ok",
             # slot_id -> document_id whose KV state is resident in RAM
-            "hot_documents": {str(slot): doc for slot, doc in sorted(self._slots.items())},
+            "hot_documents": {str(slot): doc for slot, doc in hot.items()},
             "slots": max(self._settings.cag_slots, 1),
         }
         try:

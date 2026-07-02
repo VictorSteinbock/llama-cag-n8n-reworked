@@ -53,6 +53,44 @@ The very first query on a document (or the first after `cache_source: "disk"`
 following a restart) evaluates the full prefix once; from then on it's tens of
 tokens. **Numbers, not adjectives — that's the whole point.**
 
+## Where this shines
+
+The mechanism is generic, but it pays off hardest in a specific shape of
+problem: **many questions against one dense document that doesn't change.**
+Four places that shape shows up.
+
+**A support bot that actually knows the manual.** Narrow-domain help bots built
+on a general model hallucinate policy the moment a question leaves the beaten
+path — they were never given the source of truth, only a paraphrase of it. Here
+the bot's backend is the n8n query webhook, and the model literally holds the
+entire product manual or policy document in its KV state, so every answer is
+grounded in the actual text. After the one-time warm it's precise and fast, costs
+nothing per question, and never sends a word off the machine.
+
+**A token-saver sidecar for cloud coding agents (via MCP).** Give Claude Code a
+28k-token spec to work against and, without this, that spec rides along in the
+context of *every* task — 28k tokens in, paid for, on every single turn. Point
+the agent at the local `ask_document` MCP tool instead and only the question and
+the answer cross the boundary: ~40 tokens out, an answer back, versus 28,000
+re-sent each time. The spec stays pinned in a local KV cache the cloud model
+never has to re-read or be billed for.
+
+**The team reference desk.** Contracts, runbooks, compliance manuals, an SOP
+binder — documents a team asks the same questions against for weeks, and that
+are not allowed to leave the building. This runs entirely on your own hardware,
+the caches survive restarts (ask today, ask again after a reboot, no re-warm),
+and every answer is grounded in the whole document rather than the top-k chunks a
+retriever happened to pull. Private by construction, correct by construction.
+
+**An automation brain inside n8n.** Because querying is a single HTTP call, any
+workflow can consult the canonical document as one node: classify an incoming
+ticket against the support policy, extract the required fields per the spec,
+route an approval by the rulebook. The document is the source of truth and the
+workflow just asks it — no embeddings pipeline, no vector store, no glue.
+
+If the shape of your problem is "many questions, one dense document," this is the
+cheapest correct setup that runs on your own hardware.
+
 ## Architecture
 
 <p align="center">
@@ -116,10 +154,16 @@ around it. Knowing your lane is the point.
 
 ## The family
 
-One engine, three ways to drive it:
+One engine (`llama-server` + the `cag-api` orchestrator), three faces on it —
+plus a desktop control room:
 
-- **This stack** — the engine (`llama-server`) + a typed API (`cag-api`) +
-  n8n automation. Everything programmatic or folder-/webhook-driven lives here.
+- **The API** (`cag-api`) — the typed HTTP surface. Everything programmatic
+  lives here.
+- **n8n automation** — folder-drop ingestion, a query webhook, scheduled
+  maintenance. The automation-first face.
+- **The MCP server** (`cag-mcp`) — the stack as a local document-memory tool for
+  Claude Code, Claude Desktop, and other agents (see
+  [Use it from Claude Code](#use-it-from-claude-code-mcp)).
 - **[LlamaCag UI](https://github.com/VictorSteinbock/LlamaCagUI)** — the desktop
   control room: chat, documents, stack health, model switching. *(Being rebuilt
   against this v2 API — check the repo for status.)*
@@ -191,6 +235,47 @@ Interactive docs at http://localhost:8000/docs.
 Duplicate content (same SHA-256) is detected and never re-warmed. A document
 that doesn't fit the context window is rejected at ingest with a `413` telling
 you the measured token count and which knob to raise.
+
+## Use it from Claude Code (MCP)
+
+The `mcp/` package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
+client — Claude Code, Claude Desktop, or any 2026 agent — as a local
+document-memory tool. Instead of pasting a dense spec into the agent's context on
+every task and paying to re-read it each turn, the agent calls the `ask_document`
+tool: only the question and the answer cross the boundary, while the document
+stays pinned in a local KV cache the cloud model never has to carry. It's a thin
+stdio server (`python -m cag_mcp`) that just forwards to `cag-api` at
+`CAG_API_URL` (default `http://localhost:8000`), and it offers four tools —
+`list_documents`, `ask_document`, `ingest_text`, `ingest_file`.
+
+Register it with Claude Code (`pip install -e ./mcp` first, in the stack repo):
+
+```bash
+claude mcp add cag -- python -m cag_mcp
+```
+
+…or add it to a project's `.mcp.json`:
+
+```jsonc
+{
+  "mcpServers": {
+    "cag": {
+      "command": "python",
+      "args": ["-m", "cag_mcp"],
+      "env": { "CAG_API_URL": "http://localhost:8000" }
+    }
+  }
+}
+```
+
+Then a turn looks like this — the 28k-token manual never enters the agent's
+context:
+
+```
+You:  What does section 4 of the controller manual say the peak current limit is?
+Claude (tool call → ask_document): "Section 4 caps peak load at 12 A for 10 s…"
+       [doc 7 manual.pdf · cache: memory · evaluated 43 of 28,443 prompt tokens · 640 ms]
+```
 
 ## Choosing a model (state of play, mid-2026)
 
@@ -268,6 +353,9 @@ for all knobs and comments). The defaults are sensible; the ones you might touch
 ├── api/                    # cag-api: FastAPI orchestrator (registry, slots, self-healing)
 │   ├── app/                #   config / db / extract / llama client / cag engine / routes
 │   └── tests/              #   unit + API tests (pytest, no services needed)
+├── mcp/                    # cag-mcp: MCP server exposing the stack to Claude Code / agents
+│   ├── cag_mcp/            #   FastMCP app + tools (server.py) + cag-api client (client.py)
+│   └── tests/              #   tool tests over a MockTransport fake of cag-api
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
 ├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
 ├── n8n/workflows/          # 3 importable workflows: ingestion, query, maintenance
@@ -289,8 +377,12 @@ quick start. The full reasoning is in [docs/PRD.md](docs/PRD.md) and
 
 ```bash
 pip install -e "./api[dev]"
-pytest api            # 32 tests, no Docker needed
+pytest api            # no Docker needed
 ruff check api
+
+pip install -e "./mcp[dev]"   # the MCP server
+pytest mcp            # fakes cag-api over httpx MockTransport
+ruff check mcp
 ```
 
 CI runs lint, tests, workflow JSON validation, and a compose config check on

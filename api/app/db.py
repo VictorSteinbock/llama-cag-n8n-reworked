@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from psycopg.errors import ForeignKeyViolation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -123,25 +124,26 @@ class Database:
         n_eval_tokens: int | None = None,
         duration_ms: int | None = None,
     ) -> None:
-        self._one(
-            """
+        sql = """
             INSERT INTO query_log (document_id, question, answer, success, error,
                                    n_prompt_tokens, n_cached_tokens, n_eval_tokens, duration_ms)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-            """,
-            (
-                document_id,
-                question,
-                answer,
-                success,
-                error,
-                n_prompt_tokens,
-                n_cached_tokens,
-                n_eval_tokens,
-                duration_ms,
-            ),
+            """
+        params = (
+            document_id, question, answer, success, error,
+            n_prompt_tokens, n_cached_tokens, n_eval_tokens, duration_ms,
         )
+        try:
+            self._one(sql, params)
+        except ForeignKeyViolation:
+            # The document was deleted between the query starting and this log
+            # write (a delete racing a concurrent query). ON DELETE SET NULL is
+            # exactly this case, so record the query with a NULL document_id
+            # rather than letting a successful query surface a 500.
+            if document_id is None:
+                raise
+            self._one(sql, (None, *params[1:]))
 
     def stats(self) -> dict[str, Any]:
         docs = self._one(

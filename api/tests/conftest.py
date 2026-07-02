@@ -78,7 +78,11 @@ class FakeDatabase:
         self.documents[document_id].update(status="failed", error=error)
 
     def touch_used(self, document_id):
-        doc = self.documents[document_id]
+        # Mirror the real UPDATE ... WHERE id = %s: a missing row (e.g. deleted
+        # by a concurrent request mid-query) updates nothing and does not raise.
+        doc = self.documents.get(document_id)
+        if doc is None:
+            return
         doc["use_count"] += 1
         doc["last_used_at"] = dt.datetime.now(dt.UTC)
 

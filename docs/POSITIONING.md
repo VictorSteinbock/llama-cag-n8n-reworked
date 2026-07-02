@@ -51,9 +51,12 @@ model's memory of it saved to disk" has no self-hosted incumbent.**
 > question. Exact, not approximate: the model always sees the *entire*
 > document, not retrieved chunks.
 
-Three consumers of one engine:
+Consumers of one engine:
 - **API** (`cag-api`) — for anything programmatic.
 - **n8n workflows** — drop-a-file automation, query webhook, maintenance.
+- **MCP server** (`cag-mcp`) — the stack as a local document-memory tool for
+  Claude Code / Claude Desktop / any agent; the document stays out of the cloud
+  model's context and only questions and answers cross the boundary.
 - **LlamaCag UI** (sibling repo) — the desktop control room: chat, documents,
   stack health, model switching.
 
@@ -88,6 +91,12 @@ bigger than the context window. Teams needing multi-user auth.
 3. Posts (each shows the timings screenshot + hero):
    - r/LocalLLaMA — "I built a local stack where the model reads your document
      exactly once (persistent KV cache + n8n automation)". Lead with numbers.
+     **Strongest hook for this crowd: the MCP angle** — "a local MCP tool that
+     stops Claude Code from re-reading (and re-paying for) a 28k-token spec on
+     every task; only the question and answer cross the boundary." Local-first
+     + cloud-agent cost saving is exactly what r/LocalLLaMA rewards; show the
+     one-line token arithmetic (~40 tokens out vs. 28k re-sent each turn) and
+     the `claude mcp add cag` snippet.
    - n8n community forum — automation angle: folder-drop → queryable webhook.
    - Show HN — only after a stranger has successfully quick-started.
 4. Cross-link both repos ("engine ↔ desktop control room"), credit the

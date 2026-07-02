@@ -213,3 +213,142 @@ def test_health_reports_degraded_dependencies(engine, fake_llama, fake_db):
     fake_llama.healthy = True
     fake_db.ping_ok = False
     assert engine.health()["status"] == "degraded"
+
+
+def test_health_reports_hot_documents(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    report = engine.health()
+    # slot 0 holds document 1 after warming
+    assert report["hot_documents"] == {"0": 1}
+    assert report["slots"] == 1
+
+
+def test_health_serializes_against_slot_mutation(engine):
+    # health() must take the engine lock before reading _slots; otherwise a
+    # concurrent slot mutation raises "dictionary changed size during iteration".
+    # Proof: hold the lock, call health() from another thread, and confirm it
+    # cannot complete until the lock is released.
+    import threading
+
+    done = threading.Event()
+    result: dict = {}
+
+    def call_health():
+        result["report"] = engine.health()
+        done.set()
+
+    with engine._lock:
+        worker = threading.Thread(target=call_health)
+        worker.start()
+        # While we hold the lock, health() is blocked and cannot finish.
+        assert not done.wait(timeout=0.3)
+    worker.join(timeout=2.0)
+    assert done.is_set()
+    assert result["report"]["status"] == "ok"
+
+
+def test_health_never_raises_during_concurrent_slot_churn(fake_llama, fake_db, tmp_path):
+    # Stress the exact race the lock closes: one thread churns the slot map while
+    # another hammers health(). Under the pre-fix (lock-free) read this raised
+    # RuntimeError almost immediately; with the snapshot it never does.
+    import threading
+
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=100000, answer_reserve_tokens=100,
+        cag_slots=4, db_password="test",
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    stop = threading.Event()
+    errors: list[Exception] = []
+
+    def churn():
+        i = 0
+        while not stop.is_set():
+            with engine._lock:
+                engine._slots[i % 4] = i
+                engine._slot_used[i % 4] = float(i)
+                if (i % 8) >= 4:
+                    engine._slots.pop(i % 4, None)
+            i += 1
+
+    def poll():
+        try:
+            for _ in range(3000):
+                engine.health()
+        except Exception as exc:  # noqa: BLE001 - the whole point is to catch it
+            errors.append(exc)
+        finally:
+            stop.set()
+
+    writer = threading.Thread(target=churn)
+    reader = threading.Thread(target=poll)
+    writer.start()
+    reader.start()
+    reader.join(timeout=10.0)
+    stop.set()
+    writer.join(timeout=2.0)
+    assert errors == []
+
+
+def test_delete_during_concurrent_query_keeps_slot_map_consistent(engine, fake_llama, fake_db):
+    # The delete slot-erase path and a query both mutate the slot map under the
+    # engine lock. Fire a delete of the same document from inside the chat call
+    # (which the query runs while holding the lock); the delete's own lock
+    # acquisition must wait, then erase cleanly, leaving no dangling slot entry
+    # and no crash — and the in-flight query still returns its answer.
+    import threading
+
+    engine.ingest_text("facts.txt", DOC)  # doc 1 hot in slot 0
+    state: dict = {}
+    real_chat = fake_llama.chat
+
+    def chat_then_delete(*args, **kwargs):
+        deleter = threading.Thread(target=lambda: state.update(ok=engine.delete_document(1)))
+        deleter.start()
+        deleter.join(timeout=0.2)  # blocked on the lock this query still holds
+        state["blocked_during_query"] = deleter.is_alive()
+        state["deleter"] = deleter
+        return real_chat(*args, **kwargs)
+
+    fake_llama.chat = chat_then_delete
+    out = engine.query("What is the capital?", document_id=1)
+    state["deleter"].join(timeout=2.0)  # completes once the query released the lock
+
+    assert out["answer"] == "the answer"  # the query still succeeded
+    assert state["blocked_during_query"] is True  # delete waited on the lock
+    assert state["ok"] is True
+    assert engine._slots == {}  # slot erased, no dangling entry
+    assert fake_db.documents == {}  # document row gone
+
+
+def test_maintenance_tolerates_cache_file_vanishing_mid_scan(engine, fake_db, tmp_path):
+    # A concurrent delete can unlink a .bin between maintenance's glob and its
+    # stat(); that must not 500 the maintenance endpoint.
+    import pathlib
+    from unittest.mock import patch
+
+    engine.ingest_text("facts.txt", DOC)  # writes doc-1.bin, recorded in the DB
+
+    real_stat = pathlib.Path.stat
+    victim = tmp_path / "doc-1.bin"
+    assert victim.exists()  # ingest wrote it
+    vanished = {"done": False}
+
+    def stat_but_vanish(self, *args, **kwargs):
+        # Unlink the victim the first time maintenance stats it, then let the
+        # real stat raise FileNotFoundError — the exact concurrent-delete TOCTOU.
+        # Avoid Path.exists() here: on 3.13 it routes back through stat() and
+        # would recurse into this patch.
+        if self == victim and not vanished["done"]:
+            vanished["done"] = True
+            victim.unlink()
+        return real_stat(self, *args, **kwargs)
+
+    with patch.object(pathlib.Path, "stat", stat_but_vanish):
+        report = engine.maintenance()  # must not raise
+
+    assert "cache_bytes" in report
+    assert report["cached_documents"] == 1
+    assert vanished["done"]  # the vanish actually happened during the scan

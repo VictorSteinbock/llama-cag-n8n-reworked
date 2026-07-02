@@ -43,12 +43,15 @@ def extract_text(file_name: str, data: bytes) -> str:
 
 def _from_pdf(data: bytes) -> str:
     from pypdf import PdfReader
-    from pypdf.errors import PyPdfError
 
     try:
         reader = PdfReader(io.BytesIO(data))
         pages = [page.extract_text() or "" for page in reader.pages]
-    except PyPdfError as exc:
+    except Exception as exc:
+        # pypdf raises PyPdfError for most bad input, but page extraction can also
+        # raise DependencyError (an optional-dep-required feature — NOT a PyPdfError)
+        # or bare KeyError/TypeError/struct.error on corrupt content streams. Any
+        # failure to turn the PDF into text is a 415, never an unhandled 500.
         raise UnsupportedDocumentError(f"Could not read PDF: {exc}") from exc
     text = "\n\n".join(pages).strip()
     if not text:
