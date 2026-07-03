@@ -349,6 +349,16 @@ beyond `127.0.0.1`, which exposes an *unauthenticated* API on your network —
 only do that behind a reverse proxy with auth, or on a trusted LAN you control.
 General multi-user access is the F8 fork, not this.
 
+**Feasibility — verified (11/11).** A vertical-slice harness mounted a static SPA
+on the *real* `create_app()` and drove every tab's data path through the
+`TestClient`: `/ui` serves `text/html` same-origin (no CORS); `StaticFiles` +
+`python-multipart` are already present (no new dependency); multipart upload
+ingests and warms; `GET /documents` carries the table fields; `GET /health`
+`hot_documents` drives Hot/Disk/Cold; `/query` returns the `cache_source` + token
+receipt; and a `json_schema` verdict parses cleanly into a table row. Only the
+frontend HTML/CSS/JS remains — effort, not risk. (Real LLM JSON generation is
+llama-server's job, verified separately against upstream docs, not re-tested here.)
+
 **Affected components.** New `api/app/webui/` (a self-contained `index.html` +
 inline CSS/JS, matching the established dark amber-on-slate palette); a one-line
 mount in `api/app/main.py`. **No change to any existing endpoint** — the SPA is
