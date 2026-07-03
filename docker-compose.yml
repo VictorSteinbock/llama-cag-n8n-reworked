@@ -7,6 +7,12 @@ services:
     image: ${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
     container_name: llamacag-llama
     restart: unless-stopped
+    # The "local-llama" profile keeps this service in the default all-in-Docker
+    # setup. Native mode (Apple Silicon / Metal, where Docker has no GPU
+    # passthrough) runs llama-server on the host instead: set COMPOSE_PROFILES=
+    # empty in .env and point LLAMA_SERVER_URL at host.docker.internal.
+    # See `python llamacag.py start --native-llama` and docs/HARDWARE.md.
+    profiles: ["local-llama"]
     # -hf downloads the GGUF from Hugging Face into the llama_models volume on
     # first boot (~6.5 GB for the default model), then runs offline.
     # q8_0 KV cache quantization halves context memory at negligible quality
@@ -35,7 +41,9 @@ services:
     container_name: llamacag-api
     restart: unless-stopped
     environment:
-      - LLAMA_SERVER_URL=http://llama-server:8080
+      # Defaults to the in-Docker service; override in .env with
+      # LLAMA_SERVER_URL=http://host.docker.internal:8080 for native mode.
+      - LLAMA_SERVER_URL=${LLAMA_SERVER_URL:-http://llama-server:8080}
       - LLAMA_CTX_SIZE=${LLAMA_CTX_SIZE:-65536}
       - CAG_SLOTS=${CAG_SLOTS:-1}
       - CACHE_DIR=/caches
@@ -51,8 +59,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # required: false so cag-api still starts in native mode, when the
+      # llama-server service is disabled (its "local-llama" profile is off) and
+      # inference runs on the host. cag-api reaches it via LLAMA_SERVER_URL.
       llama-server:
         condition: service_started
+        required: false
 
   n8n:
     image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-latest}

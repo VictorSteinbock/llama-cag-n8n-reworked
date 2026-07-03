@@ -91,6 +91,10 @@ bigger than the context window. Teams needing multi-user auth.
 3. Posts (each shows the timings screenshot + hero):
    - r/LocalLLaMA — "I built a local stack where the model reads your document
      exactly once (persistent KV cache + n8n automation)". Lead with numbers.
+   - Unified-memory angle for the same crowd: a 128 GB Strix Halo box or Mac
+     Studio holds a *shelf* of 100k-token documents hot in parallel slots
+     (`CAG_SLOTS`), and the sweep workflow answers hundreds of questions for
+     the cost of one read — docs/HARDWARE.md is the supporting artifact.
      **Strongest hook for this crowd: the MCP angle** — "a local MCP tool that
      stops Claude Code from re-reading (and re-paying for) a 28k-token spec on
      every task; only the question and answer cross the boundary." Local-first

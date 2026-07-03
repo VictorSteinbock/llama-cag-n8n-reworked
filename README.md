@@ -91,6 +91,33 @@ workflow just asks it — no embeddings pipeline, no vector store, no glue.
 If the shape of your problem is "many questions, one dense document," this is the
 cheapest correct setup that runs on your own hardware.
 
+### Loops and living documents
+
+The economics get better the more you loop. **Question sweeps:** because the
+marginal question is nearly free, running *hundreds* of questions against one
+warm document is a rounding error — a compliance checklist, an extraction
+battery, an eval harness. The bundled sweep workflow takes a list and returns
+all the answers in one call:
+
+```bash
+curl -X POST http://localhost:5678/webhook/cag/sweep \
+  -H "Content-Type: application/json" \
+  -d '{"questions": ["What is the max load?", "Who signs off?", "Renewal date?"]}'
+```
+
+**Living documents:** re-drop a changed file into the watch folder and the hash
+dedupe sorts it out — unchanged re-drops are free no-ops, changed versions
+re-warm automatically, and the query webhook always answers against the latest
+cached state. Point a nightly export at the folder and you have a self-updating
+document memory. **Agent loops:** via MCP (or `history` on `/query`), an agent
+can interrogate a pinned document iteratively — plan, ask, refine, ask again —
+while only the questions and answers ever occupy the agent's own context.
+
+**Scaling up:** all of this multiplies with RAM. A 128 GB unified-memory machine
+(or a 256–512 GB Mac Studio) holds a whole shelf of 100k-token documents hot in
+parallel slots — see [docs/HARDWARE.md](docs/HARDWARE.md) for per-tier model
+recommendations, `.env` presets, and the native-Mac (Metal) recipe.
+
 ## Architecture
 
 <p align="center">
@@ -194,7 +221,7 @@ with `python llamacag.py logs llama-server`, and confirm readiness with
 **Set up n8n (one-time, ~2 minutes):**
 
 1. Open http://localhost:5678 and create the local owner account.
-2. Import the three workflows from [`n8n/workflows/`](n8n/workflows/)
+2. Import the four workflows from [`n8n/workflows/`](n8n/workflows/)
    (*Workflows → ⋯ → Import from file*).
 3. Activate each one. **No credentials to configure** — the workflows only call
    `cag-api` over the internal Docker network.
@@ -303,7 +330,13 @@ Two knobs matter alongside the model:
 **Changing model or quant invalidates existing caches**; they self-heal
 (recompute + re-save) on their next query.
 
-### GPU acceleration
+### GPU & native acceleration
+
+- **Apple Silicon (Metal):** Docker Desktop on macOS has **no GPU passthrough**,
+  so run llama-server natively (`brew install llama.cpp`) and keep the rest of
+  the stack in Docker: `python llamacag.py start --native-llama` prints the
+  exact host command and the two `.env` lines that point `cag-api` at it. Full
+  recipe in [docs/HARDWARE.md](docs/HARDWARE.md).
 
 - **NVIDIA:** `python llamacag.py start --gpu` (CUDA image; NVIDIA Container
   Toolkit required — bundled with Docker Desktop on Windows).

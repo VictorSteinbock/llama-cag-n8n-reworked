@@ -1,0 +1,258 @@
+{
+  "name": "CAG Question Sweep",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CAG Question Sweep\n\nAsk many questions against ONE warm document in a single call. The document is read once (already cached); each question only costs its own tokens, so a sweep of hundreds of questions is cheap.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/sweep \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"document_id\": 7,\n        \"questions\": [\n          \"What is the peak current limit?\",\n          \"What is the continuous load limit?\",\n          \"Which section covers thermal shutdown?\"\n        ]\n      }'\n```\n\n`document_id` is optional — omit it to sweep the most recently cached document.\nThe response is an array of `{question, answer, cache_source, error}`.\nOne failing question is captured (error branch) and does not abort the sweep.\n\nNo credentials needed — cag-api does all the work.",
+        "height": 480,
+        "width": 460
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000001",
+      "name": "How to use",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-320, -220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cag/sweep",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000002",
+      "name": "Sweep Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "webhookId": "6b1c9d2e-4a3f-4b8c-9d0e-1f2a3b4c5d6e"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.questions",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "question"
+        }
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000003",
+      "name": "Split Questions",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://cag-api:8000/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $json.question, document_id: $json.body.document_id }) }}",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000004",
+      "name": "Ask CAG API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sweep-ok-1",
+              "name": "question",
+              "value": "={{ $('Split Questions').item.json.question }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-ok-2",
+              "name": "answer",
+              "value": "={{ $json.answer }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-ok-3",
+              "name": "cache_source",
+              "value": "={{ $json.timings?.cache_source }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-ok-4",
+              "name": "error",
+              "value": "={{ null }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000005",
+      "name": "Collect Answer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sweep-err-1",
+              "name": "question",
+              "value": "={{ $('Split Questions').item.json.question }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-err-2",
+              "name": "answer",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-err-3",
+              "name": "cache_source",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "sweep-err-4",
+              "name": "error",
+              "value": "={{ $json.error?.message ?? $json.error ?? 'CAG API request failed' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000006",
+      "name": "Mark Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 120]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateIndividualFields",
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "question"
+            },
+            {
+              "fieldToAggregate": "answer"
+            },
+            {
+              "fieldToAggregate": "cache_source"
+            },
+            {
+              "fieldToAggregate": "error"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000007",
+      "name": "Aggregate Answers",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1220, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "d4e73f40-0000-4000-8000-000000000008",
+      "name": "Respond With Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1480, 0]
+    }
+  ],
+  "connections": {
+    "Sweep Webhook": {
+      "main": [
+        [
+          {
+            "node": "Split Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Questions": {
+      "main": [
+        [
+          {
+            "node": "Ask CAG API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask CAG API": {
+      "main": [
+        [
+          {
+            "node": "Collect Answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Answer": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failure": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Answers": {
+      "main": [
+        [
+          {
+            "node": "Respond With Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}

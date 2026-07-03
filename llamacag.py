@@ -3,6 +3,7 @@
 
     python llamacag.py setup            create .env with generated secrets
     python llamacag.py start [--gpu]    bring the stack up
+    python llamacag.py start --native-llama  stack in Docker, llama-server on host
     python llamacag.py stop             bring the stack down
     python llamacag.py status           container + HTTP health overview
     python llamacag.py logs [service]   tail service logs
@@ -11,6 +12,7 @@
 
 import argparse
 import json
+import os
 import re
 import secrets
 import shutil
@@ -29,6 +31,15 @@ VULKAN_COMPOSE_FILE = "docker-compose.vulkan.yml"
 
 SECRET_KEYS = ("DB_PASSWORD", "N8N_ENCRYPTION_KEY", "N8N_USER_MANAGEMENT_JWT_SECRET")
 
+# The llama-server service sits behind this compose profile so it can be turned
+# off for native mode (host-run llama-server, e.g. Apple Silicon / Metal).
+LLAMA_PROFILE = "local-llama"
+# Where a host-run llama-server should persist its KV slot caches in native
+# mode. Unlike Docker mode these live on the host, not in the kv_caches volume.
+NATIVE_SLOT_SAVE_PATH = "./kv_caches"
+
+MODEL_DEFAULT = "google/gemma-4-12B-it-qat-q4_0-gguf"
+
 
 def read_env() -> dict[str, str]:
     values: dict[str, str] = {}
@@ -46,7 +57,30 @@ def port(env: dict[str, str], key: str, default: str) -> str:
     return env.get(key, default) or default
 
 
-def run_compose(args: list[str], *, gpu: bool = False, vulkan: bool = False) -> int:
+def compose_env(profiles: str | None = None) -> dict[str, str]:
+    """Subprocess environment for docker compose, resolving COMPOSE_PROFILES.
+
+    `profiles` set to "" or a value forces COMPOSE_PROFILES for this invocation
+    (native mode passes ""). Left as None, we fall back to the backward-compat
+    default: if neither the shell env nor .env defines COMPOSE_PROFILES, inject
+    "local-llama" so old .env files (written before that knob existed) still get
+    the all-in-Docker service set.
+    """
+    env = dict(os.environ)
+    if profiles is not None:
+        env["COMPOSE_PROFILES"] = profiles
+    elif "COMPOSE_PROFILES" not in env and "COMPOSE_PROFILES" not in read_env():
+        env["COMPOSE_PROFILES"] = LLAMA_PROFILE
+    return env
+
+
+def run_compose(
+    args: list[str],
+    *,
+    gpu: bool = False,
+    vulkan: bool = False,
+    profiles: str | None = None,
+) -> int:
     files = list(COMPOSE_FILES)
     if gpu:
         files.append(GPU_COMPOSE_FILE)
@@ -56,7 +90,7 @@ def run_compose(args: list[str], *, gpu: bool = False, vulkan: bool = False) -> 
     for name in files:
         command += ["-f", str(PROJECT_ROOT / name)]
     command += args
-    return subprocess.run(command, cwd=PROJECT_ROOT).returncode
+    return subprocess.run(command, cwd=PROJECT_ROOT, env=compose_env(profiles)).returncode
 
 
 def docker_ready() -> bool:
@@ -103,6 +137,65 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def native_llama_command(env: dict[str, str]) -> str:
+    """The host llama-server command for native mode, with .env values baked in.
+
+    Mirrors the container command in docker-compose.yml, except the caches live
+    on the host (--slot-save-path points at a host folder) and --host binds all
+    interfaces so the Dockerised cag-api can reach it via host.docker.internal.
+    """
+    model = env.get("LLAMA_MODEL", MODEL_DEFAULT)
+    ctx = port(env, "LLAMA_CTX_SIZE", "65536")
+    slots = port(env, "CAG_SLOTS", "1")
+    kv = port(env, "LLAMA_CACHE_TYPE_KV", "q8_0")
+    llama_port = port(env, "LLAMA_PORT", "8080")
+    extra = env.get("LLAMA_EXTRA_ARGS", "").strip()
+    lines = [
+        "llama-server \\",
+        f"  -hf {model} \\",
+        f"  --ctx-size {ctx} \\",
+        f"  --parallel {slots} \\",
+        f"  --cache-type-k {kv} \\",
+        f"  --cache-type-v {kv} \\",
+        f"  --slot-save-path {NATIVE_SLOT_SAVE_PATH} \\",
+        "  --host 0.0.0.0 \\",
+        f"  --port {llama_port}",
+    ]
+    if extra:
+        lines[-1] += " \\"
+        lines.append(f"  {extra}")
+    return "\n".join(lines)
+
+
+def print_native_llama_instructions(env: dict[str, str]) -> None:
+    save_path = (PROJECT_ROOT / NATIVE_SLOT_SAVE_PATH).resolve()
+    print()
+    print("=" * 72)
+    print("NATIVE llama-server mode — start the model yourself on the host")
+    print("=" * 72)
+    print("The rest of the stack (cag-api, n8n, Postgres) is running in Docker,")
+    print("but llama-server is NOT — Docker has no GPU/Metal passthrough on macOS,")
+    print("so on Apple Silicon you run it natively for Metal acceleration.")
+    print()
+    print("1. Install llama.cpp once (Apple Silicon builds with Metal by default):")
+    print("     brew install llama.cpp")
+    print()
+    print("2. Run this in a SEPARATE terminal and leave it running (the model")
+    print("   downloads from Hugging Face on first launch, then serves offline):")
+    print()
+    print(native_llama_command(env))
+    print()
+    print(f"   KV slot caches persist on the HOST at {save_path}")
+    print("   (native mode does NOT use the Docker kv_caches volume). This folder")
+    print("   is created for you; keep it to survive restarts.")
+    print()
+    print("3. Point cag-api at the host process — make sure .env has:")
+    print("     COMPOSE_PROFILES=")
+    print("     LLAMA_SERVER_URL=http://host.docker.internal:8080")
+    print("   (LLAMA_PORT above must match the :8080 here.)")
+    print("=" * 72)
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     if not ENV_FILE.exists():
         print("[!!] No .env file. Run: python llamacag.py setup")
@@ -114,27 +207,44 @@ def cmd_start(args: argparse.Namespace) -> int:
     if args.gpu and args.vulkan:
         print("[!!] Pick one of --gpu (NVIDIA/CUDA) or --vulkan (Intel/AMD), not both.")
         return 1
+    if args.native_llama and (args.gpu or args.vulkan):
+        print("[!!] --native-llama runs llama-server on the host; drop --gpu/--vulkan "
+              "(those configure the in-Docker llama-server, which native mode disables).")
+        return 1
     if not docker_ready():
         return 1
 
-    code = run_compose(["up", "-d", "--build"], gpu=args.gpu, vulkan=args.vulkan)
-    if code != 0:
-        return code
+    if args.native_llama:
+        # Native mode: disable the in-Docker llama-server (empty profile) and
+        # bring up only the supporting services; the user runs llama-server
+        # themselves. Caches live on the host, so ensure the folder exists.
+        (PROJECT_ROOT / NATIVE_SLOT_SAVE_PATH).mkdir(parents=True, exist_ok=True)
+        code = run_compose(["up", "-d", "--build"], profiles="")
+        if code != 0:
+            return code
+        print_native_llama_instructions(env)
+    else:
+        # Default all-in-Docker mode. profiles=None lets run_compose inject
+        # local-llama when .env predates the COMPOSE_PROFILES knob.
+        code = run_compose(["up", "-d", "--build"])
+        if code != 0:
+            return code
 
     n8n = f"http://localhost:{port(env, 'N8N_PORT', '5678')}"
     api = f"http://localhost:{port(env, 'CAG_API_PORT', '8000')}"
-    model = env.get("LLAMA_MODEL", "google/gemma-4-12B-it-qat-q4_0-gguf")
+    model = env.get("LLAMA_MODEL", MODEL_DEFAULT)
     print()
     print("=" * 72)
     print("llama-cag-n8n is starting")
     print("=" * 72)
-    print(f"  n8n:       {n8n}   (import the 3 workflows from n8n/workflows/)")
+    print(f"  n8n:       {n8n}   (import the workflows from n8n/workflows/)")
     print(f"  cag-api:   {api}   ({api}/docs for the API browser)")
     print(f"  model:     {model}")
-    print()
-    print("First boot downloads the model (~6.5 GB for the default) before")
-    print("llama-server accepts requests. Watch it with:")
-    print("  python llamacag.py logs llama-server")
+    if not args.native_llama:
+        print()
+        print("First boot downloads the model (~6.5 GB for the default) before")
+        print("llama-server accepts requests. Watch it with:")
+        print("  python llamacag.py logs llama-server")
     print("Then check everything with:")
     print("  python llamacag.py status")
     print("=" * 72)
@@ -247,6 +357,10 @@ def main() -> int:
     p_start.add_argument(
         "--vulkan", action="store_true",
         help="Intel/AMD GPU via Vulkan (Linux hosts; see docker-compose.vulkan.yml)",
+    )
+    p_start.add_argument(
+        "--native-llama", action="store_true",
+        help="run llama-server on the host (Apple Silicon/Metal); prints the command",
     )
     p_start.set_defaults(func=cmd_start)
 
