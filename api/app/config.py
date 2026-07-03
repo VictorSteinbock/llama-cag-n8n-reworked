@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     default_max_answer_tokens: int = 1024
     default_temperature: float = 0.2
 
+    # Paraphrase tolerance for POST /verify's mechanical quote check: the minimum
+    # difflib ratio at which a non-exact quote still counts as grounded. Higher =
+    # stricter. Behavioral (not geometry), but plumbed through docker-compose.yml's
+    # cag-api env allowlist + .env.example so setting it actually reaches the container.
+    quote_match_threshold: float = 0.9
+
     @property
     def slot_ctx_size(self) -> int:
         return self.llama_ctx_size // max(self.cag_slots, 1)

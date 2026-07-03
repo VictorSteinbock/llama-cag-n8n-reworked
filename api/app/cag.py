@@ -21,6 +21,7 @@ way — the first query recomputes, correctness is never affected.
 """
 
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -30,6 +31,7 @@ from collections.abc import Callable
 from .config import Settings
 from .db import Database
 from .extract import extract_text
+from .grounding import grounding
 from .llama import LlamaClient, LlamaError
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,29 @@ SYSTEM_TEMPLATE = (
 
 # The ~20-token warm turn is the deliberate price of model-agnostic warming.
 WARM_USER_MESSAGE = "Reply with the single word: ready"
+
+# The single, shared verdict schema for POST /verify. F2 (answer-gate), F4
+# (calibration) and F9 (Verify tab) reference this by name — never redefine it.
+# The `conditions` field (F3) surfaces a scope the document places on the claim
+# (e.g. "only if defective") so a conditional isn't mislabeled as unconditional.
+DEFAULT_VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "claim": {"type": "string"},
+        "verdict": {"enum": ["supported", "absent", "contradicted"]},
+        "quote": {"type": "string"},
+        "conditions": {"type": "string"},
+    },
+    "required": ["claim", "verdict", "quote", "conditions"],
+}
+
+VERIFY_PROMPT_TEMPLATE = (
+    'Verify this claim strictly against the document: "{claim}". '
+    "Give your verdict (supported, contradicted, or absent), the exact verbatim "
+    'supporting or contradicting passage as "quote" (empty string if absent), and in '
+    '"conditions" any scope or condition the document places on the claim (empty '
+    "string if it applies unconditionally)."
+)
 
 
 class DocumentTooLargeError(Exception):
@@ -405,6 +430,74 @@ class CagEngine:
             },
             "duration_ms": duration_ms,
             "timings": timings_out,
+        }
+
+    def verify_claim(
+        self, claim: str, document_id: int | None = None, max_tokens: int | None = None
+    ) -> dict:
+        """Verify a claim against a document, then mechanically ground the quote.
+
+        The generation goes through the existing ``query()`` verbatim: the verify
+        instruction rides in a *user* turn and ``DEFAULT_VERDICT_SCHEMA`` is passed
+        as the sampling schema, so the cached document prefix stays byte-identical
+        (invariant 1). ``grounding()`` then confirms the model's ``quote`` actually
+        occurs in the source bytes.
+
+        Asymmetry worth stating plainly: grounding **hardens**
+        ``supported``/``contradicted`` (there is a passage to check) but **cannot**
+        harden ``absent`` (``quote_grounded=None``) — and it verifies the quote's
+        *existence*, not the claim's *entailment*. That gap is why F4 (calibration)
+        and F2 (answer-gating) exist.
+        """
+        question = VERIFY_PROMPT_TEMPLATE.format(claim=claim)
+        result = self.query(
+            question,
+            document_id=document_id,
+            max_tokens=max_tokens or self._settings.default_max_answer_tokens,
+            temperature=0.0,
+            json_schema=DEFAULT_VERDICT_SCHEMA,
+        )
+        # Ground against the exact cached bytes. query()'s return carries only
+        # {id, file_name, n_tokens}, so re-fetch the content; that re-fetch can
+        # race a concurrent delete (get_document -> dict | None), so guard it —
+        # a vanished document is a 404, never a 500.
+        resolved_id = result["document"]["id"]
+        doc = self._db.get_document(resolved_id, with_content=True)
+        if doc is None:
+            raise UnknownDocumentError(f"Document {resolved_id} was deleted")
+
+        # A schema-constrained answer is a JSON object; anything else (non-JSON,
+        # or valid JSON that isn't an object) collapses to verdict "error" so the
+        # endpoint stays 200 and the response shape is stable.
+        try:
+            parsed = json.loads(result["answer"])
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            verdict = parsed.get("verdict")
+            quote = parsed.get("quote", "") or ""
+            conditions = parsed.get("conditions", "") or ""
+        else:
+            verdict, quote, conditions = "error", "", ""
+        if verdict not in {"supported", "absent", "contradicted"}:
+            verdict = "error"
+
+        if verdict != "error":
+            g = grounding(quote, doc["content"], threshold=self._settings.quote_match_threshold)
+        else:
+            g = {"grounded": None, "match_ratio": 0.0, "method": "absent"}
+
+        return {
+            "claim": claim,
+            "verdict": verdict,
+            "quote": quote,
+            "conditions": conditions,
+            "quote_grounded": g["grounded"],
+            "match_ratio": g["match_ratio"],
+            "grounding_method": g["method"],
+            "document": result["document"],
+            "duration_ms": result["duration_ms"],
+            "timings": result["timings"],
         }
 
     def _make_hot(self, doc: dict) -> tuple[int, str]:

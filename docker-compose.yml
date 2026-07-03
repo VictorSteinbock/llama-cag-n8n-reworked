@@ -51,6 +51,8 @@ services:
       # extractive answers — see "Running it as a dedicated chatbot" in README.
       - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.2}
       - DEFAULT_MAX_ANSWER_TOKENS=${DEFAULT_MAX_ANSWER_TOKENS:-1024}
+      # Paraphrase tolerance for POST /verify's quote grounding (higher = stricter).
+      - QUOTE_MATCH_THRESHOLD=${QUOTE_MATCH_THRESHOLD:-0.9}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
       - CACHE_DIR=/caches
       - DB_HOST=db

@@ -108,9 +108,11 @@ flowchart LR
 ```
 
 A cloud agent drafts; one cheap local call checks the draft against the source
-of truth *before it ships*. Make the verdict machine-readable with a
-[`json_schema`](#structured-output) and the oracle becomes a typed verifier: a
-claim in, a `{claim, verdict, quote}` object out. The bundled
+of truth *before it ships*. The verdict is machine-readable — a claim in, a
+`{claim, verdict, quote, conditions, quote_grounded}` object out — and
+[`POST /verify`](#the-api) goes one step further: it **mechanically** confirms the
+returned quote actually occurs in the source bytes and reports `quote_grounded`,
+so a fabricated citation is caught with **zero** extra model calls. The bundled
 **claim-verification workflow** batch-verifies a whole list that way in one
 call — each claim checked at `temperature 0` against the pinned document, one
 bad claim captured without aborting the rest:
@@ -119,9 +121,9 @@ bad claim captured without aborting the rest:
 curl -X POST http://localhost:5678/webhook/cag/verify \
   -H "Content-Type: application/json" \
   -d '{"claims": ["The peak current limit is 12 A.",
-                  "The warranty covers water damage."]}'
-# → [{"claim": "…", "verdict": "supported",     "quote": "…"},
-#    {"claim": "…", "verdict": "contradicted",  "quote": "…"}]
+                  "Widgets are refundable within 30 days."]}'
+# → [{"claim": "…", "verdict": "supported",    "quote": "…", "quote_grounded": true, "conditions": ""},
+#    {"claim": "…", "verdict": "contradicted", "quote": "…", "quote_grounded": true, "conditions": "only if defective"}]
 ```
 
 This closes a **productized critique loop**: a drafting agent (Claude Code, or
@@ -131,13 +133,15 @@ anything ships.
 
 **What it guarantees — and what it doesn't.** The verdict is *reproducible* and
 *source-grounded*: the model always has the whole document in context (no
-retrieval miss) and must quote its evidence, so a fabricated citation is
-visible. But it is a model judgement, not a proof — the model can misread real
-evidence, and an `absent` verdict may be a miss on a long document rather than a
-true gap. Treat it as a **fail-safe gate**: auto-pass only on `supported` with a
-quote that checks out; route `absent` and `contradicted` to review. Turning that
-citation into an *automatic* check (does the quote literally appear in the
-source?) and scoring each canon's retrieval reliability are the first items on
+retrieval miss) and must quote its evidence, and `POST /verify` **mechanically**
+checks that quote against the source — so a fabricated citation is caught
+automatically (`quote_grounded: false`), no extra model call. But grounding is
+**asymmetric**: it hardens `supported`/`contradicted` (there is a passage to
+check) but **cannot** harden `absent` (`quote_grounded: null`), and it verifies
+the quote's *existence*, not the claim's *entailment* — the model can still
+misread real evidence. Treat it as a **fail-safe gate**: auto-pass only on
+`supported` with a grounded quote; route `absent` and `contradicted` to review.
+Scoring each canon's reliability (the per-canon calibration battery) is next on
 the [roadmap](docs/ROADMAP.md).
 
 ### It composes with LLM wikis and second brains
@@ -363,6 +367,7 @@ Interactive docs at http://localhost:8000/docs.
 | `GET /documents` | Registry with status, token counts, usage |
 | `DELETE /documents/{id}` | Remove document + its cache file |
 | `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
+| `POST /verify` | `{"claim": "...", "document_id"?: n, "max_tokens"?: n}` → a grounded verdict `{claim, verdict, quote, conditions, quote_grounded, match_ratio, grounding_method, …}`. Runs one `temperature 0` check and **mechanically** confirms the quote occurs in the source (`quote_grounded`) — a fabricated citation is caught with no extra model call. Tune strictness with `QUOTE_MATCH_THRESHOLD`. See [the grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook) |
 | `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
 | `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 

@@ -1,6 +1,14 @@
+import json
+
 import pytest
 
-from app.cag import CagEngine, DocumentTooLargeError, NoCachedDocumentError
+from app.cag import (
+    DEFAULT_VERDICT_SCHEMA,
+    CagEngine,
+    DocumentTooLargeError,
+    NoCachedDocumentError,
+    UnknownDocumentError,
+)
 
 DOC = "The capital of Freedonia is Fredville. " * 20
 
@@ -607,3 +615,93 @@ def test_maintenance_tolerates_cache_file_vanishing_mid_scan(engine, fake_db, tm
     assert "cache_bytes" in report
     assert report["cached_documents"] == 1
     assert vanished["done"]  # the vanish actually happened during the scan
+
+
+# --- F1/F3: verify_claim (quote-grounding + conditions) --------------------
+
+def _verdict(verdict, quote, conditions="", claim="the claim"):
+    return json.dumps(
+        {"claim": claim, "verdict": verdict, "quote": quote, "conditions": conditions}
+    )
+
+
+def test_verify_grounded_supported(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict("supported", "The capital of Freedonia is Fredville")
+
+    result = engine.verify_claim("Fredville is the capital")
+
+    assert result["verdict"] == "supported"
+    assert result["quote_grounded"] is True
+    assert result["grounding_method"] == "exact"
+    assert result["match_ratio"] == 1.0
+    assert result["conditions"] == ""
+    assert result["document"]["id"] == 1
+
+
+def test_verify_catches_fabricated_quote(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict(
+        "supported", "The capital of Freedonia is Metropolis by the sea"
+    )
+
+    result = engine.verify_claim("Metropolis is the capital")
+
+    assert result["verdict"] == "supported"  # the model claimed support...
+    assert result["quote_grounded"] is False  # ...but the quote isn't in the doc
+    assert result["match_ratio"] < 0.9
+
+
+def test_verify_absent_leaves_grounding_none(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict("absent", "")
+
+    result = engine.verify_claim("The document mentions dragons")
+
+    assert result["verdict"] == "absent"
+    assert result["quote_grounded"] is None
+    assert result["grounding_method"] == "absent"
+
+
+def test_verify_surfaces_conditions(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict(
+        "contradicted", "The capital of Freedonia is Fredville",
+        conditions="only if the item is defective",
+    )
+
+    result = engine.verify_claim("Refunds are always available")
+
+    assert result["conditions"] == "only if the item is defective"
+
+
+def test_verify_non_json_answer_yields_error_verdict(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = "sorry, I can't do that"
+
+    result = engine.verify_claim("anything")
+
+    assert result["verdict"] == "error"
+    assert result["quote_grounded"] is None
+    assert result["match_ratio"] == 0.0
+
+
+def test_verify_reuses_query_prefix_byte_identical(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    engine.query("hi")  # a plain, schema-less query over the same document
+    baseline_system = fake_llama.last_messages[0]["content"]
+
+    fake_llama.answer_json = _verdict("supported", "The capital of Freedonia is Fredville")
+    engine.verify_claim("Fredville is the capital")
+
+    # Same document -> byte-identical system prefix (invariant 1). The schema
+    # rides in sampling; the instruction rides in the last user turn.
+    assert fake_llama.last_messages[0]["content"] == baseline_system
+    assert fake_llama.last_json_schema == DEFAULT_VERDICT_SCHEMA
+    assert fake_llama.last_messages[-1]["content"].startswith("Verify this claim strictly")
+
+
+def test_verify_unknown_document_raises(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    with pytest.raises(UnknownDocumentError):
+        engine.verify_claim("x", document_id=999)

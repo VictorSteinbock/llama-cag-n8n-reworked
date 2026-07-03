@@ -34,7 +34,7 @@ flowchart LR
 | Component | Image | Owns |
 |-----------|-------|------|
 | **llama-server** | `ghcr.io/ggml-org/llama.cpp:server` (`:server-cuda` with `--gpu`, `:server-vulkan` with `--vulkan`) | Model download (`-hf`), tokenization, inference, prompt templating, per-slot KV cache in RAM (quantized `q8_0`), KV persistence to disk (`--slot-save-path`) |
-| **cag-api** | built from [`api/`](../api) | Document registry, text extraction (txt/md/html/pdf), context-fit validation, slot orchestration (which doc is "hot"), self-healing, query log, maintenance |
+| **cag-api** | built from [`api/`](../api) | Document registry, text extraction (txt/md/html/pdf), context-fit validation, slot orchestration (which doc is "hot"), self-healing, query log, maintenance, mechanical quote-grounding (`POST /verify`) |
 | **n8n** | `docker.n8n.io/n8nio/n8n` | Automation only: folder watch → ingest, webhook → query, schedule → maintenance. Zero business logic, zero credentials |
 | **postgres** | `postgres:17-alpine` | `n8n` database (n8n internal) + `llamacag` database (`documents`, `query_log`) |
 
@@ -117,6 +117,20 @@ same base) would restore stale KV state **silently**. cag-api closes that hole:
 on its first llama interaction per process it compares `/props` `model_path`
 against a `model.marker` file beside the caches, and on mismatch wipes all
 `*.bin` once (they re-warm on next use) and rewrites the marker.
+
+## Grounding (`POST /verify`)
+
+`POST /verify {claim, document_id?}` runs one grounded, `temperature 0` generation
+through the same `query()` path (schema in sampling, instruction in a user turn — the
+document prefix stays byte-identical) and returns a strict verdict
+`{claim, verdict, quote, conditions, quote_grounded, match_ratio, grounding_method}`.
+The engine then **mechanically** checks that the model's `quote` actually occurs in the
+source bytes (`api/app/grounding.py`, stdlib `difflib`): an exact normalized substring, or
+an anchored-window fuzzy match above `QUOTE_MATCH_THRESHOLD`. This hardens
+`supported`/`contradicted` (a passage exists to check) but cannot harden `absent`
+(`quote_grounded=null`), and it verifies the quote's *existence*, not the claim's
+*entailment*. `conditions` surfaces a scope the document places on the claim (e.g.
+"only if defective") so a conditional isn't mislabeled.
 
 ## Data model (`llamacag` database)
 

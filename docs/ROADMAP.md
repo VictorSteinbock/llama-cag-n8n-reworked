@@ -17,9 +17,9 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 
 | # | Feature | Tier | Effort | Status |
 |---|---------|------|--------|--------|
-| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Ready |
+| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Shipped (branch) |
 | F2 | Answer-gating pattern + fail-safe gate | Composition | S | Ready·dep (F1) |
-| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Ready·dep (F1) |
+| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Shipped (branch) |
 | F4 | Per-canon reliability battery (calibration) | New capability | M | Ready |
 | F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Ready |
 | F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Ready (docs shipped) |

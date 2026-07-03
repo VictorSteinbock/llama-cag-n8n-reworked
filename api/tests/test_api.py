@@ -182,3 +182,83 @@ def test_maintenance_endpoint(client):
     report = client.post("/maintenance")
     assert report.status_code == 200
     assert report.json()["cached_documents"] == 1
+
+
+# --- F1/F3: POST /verify ----------------------------------------------------
+
+def _verdict_json(verdict, quote, conditions=""):
+    import json
+    return json.dumps(
+        {"claim": "c", "verdict": verdict, "quote": quote, "conditions": conditions}
+    )
+
+
+def test_verify_endpoint_happy_path(client, fake_llama):
+    client.post("/documents/text", json={"text": "Fredville is the capital of Freedonia."})
+    fake_llama.answer_json = _verdict_json("supported", "Fredville is the capital")
+
+    response = client.post("/verify", json={"claim": "Fredville is the capital"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verdict"] == "supported"
+    assert body["quote_grounded"] is True
+    assert body["grounding_method"] == "exact"
+    assert body["match_ratio"] == 1.0
+    assert body["conditions"] == ""
+    assert body["document"]["id"] == 1
+
+
+def test_verify_unknown_document_is_404(client):
+    client.post("/documents/text", json={"text": "something"})
+    response = client.post("/verify", json={"claim": "x", "document_id": 42})
+    assert response.status_code == 404
+
+
+def test_verify_no_documents_is_409(client):
+    response = client.post("/verify", json={"claim": "anything"})
+    assert response.status_code == 409
+
+
+def test_verify_validation_is_422(client):
+    assert client.post("/verify", json={}).status_code == 422
+    assert client.post("/verify", json={"claim": ""}).status_code == 422
+
+
+def test_verify_non_json_is_error_not_500(client, fake_llama):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    fake_llama.answer_json = "sorry, I can't answer that"
+
+    response = client.post("/verify", json={"claim": "x"})
+
+    assert response.status_code == 200
+    assert response.json()["verdict"] == "error"
+
+
+def test_verify_llama_outage_is_502(client, fake_llama):
+    from app.llama import LlamaError
+
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+
+    def boom(*a, **k):
+        raise LlamaError("connection refused")
+
+    fake_llama.chat = boom
+    response = client.post("/verify", json={"claim": "x"})
+    assert response.status_code == 502
+
+
+def test_verify_doc_deleted_mid_flight_is_404(client, fake_llama, fake_db):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    original_chat = fake_llama.chat
+
+    def chat_then_delete(*a, **k):
+        result = original_chat(*a, **k)
+        fake_db.documents.pop(1, None)  # row vanishes before the grounding re-fetch
+        return result
+
+    fake_llama.chat = chat_then_delete
+    fake_llama.answer_json = _verdict_json("supported", "Fredville is the capital")
+
+    response = client.post("/verify", json={"claim": "x"})
+    assert response.status_code == 404  # the doc-is-None guard, never a 500

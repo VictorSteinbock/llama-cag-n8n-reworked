@@ -49,6 +49,12 @@ class QueryRequest(BaseModel):
     json_schema: dict | None = None
 
 
+class VerifyRequest(BaseModel):
+    claim: str = Field(min_length=1)
+    document_id: int | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+
+
 def create_app(engine: CagEngine | None = None) -> FastAPI:
     """App factory. Tests pass a pre-built engine; production builds one from env."""
 
@@ -122,6 +128,7 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
                 "DELETE /documents/{id}",
                 "POST /query {question, document_id?, max_tokens?, temperature?, history?, "
                 "json_schema?}",
+                "POST /verify {claim, document_id?, max_tokens?}",
                 "POST /maintenance",
             ],
         }
@@ -174,6 +181,12 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
             temperature=body.temperature,
             history=[turn.model_dump() for turn in body.history] if body.history else None,
             json_schema=body.json_schema,
+        )
+
+    @app.post("/verify")
+    def verify(request: Request, body: VerifyRequest):
+        return _engine(request).verify_claim(
+            body.claim, document_id=body.document_id, max_tokens=body.max_tokens
         )
 
     @app.post("/maintenance")

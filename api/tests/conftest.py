@@ -137,6 +137,10 @@ class FakeLlama:
         self.fail_restore = False
         self.healthy = True
         self.answer = "the answer"
+        # When set, chat() returns this instead of `answer` — used by /verify
+        # tests to feed a JSON verdict string. Default None keeps every existing
+        # test (which asserts answer == "the answer") unchanged.
+        self.answer_json: str | None = None
         self.model_path = "/models/fake-model.gguf"
 
     def health(self):
@@ -158,8 +162,9 @@ class FakeLlama:
         self.calls.append(("chat", messages[0]["content"][:60], warm, slot_id))
         self.last_messages = messages
         self.last_json_schema = json_schema
+        content = self.answer_json if self.answer_json is not None else self.answer
         return {
-            "content": self.answer,
+            "content": content,
             "timings": {"prompt_n": 12, "cache_n": 480, "predicted_n": 20},
             "usage": {"prompt_tokens": 492},
         }
