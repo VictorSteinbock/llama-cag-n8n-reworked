@@ -24,108 +24,6 @@ for inference and cache persistence, a small FastAPI orchestrator (`cag-api`),
 [n8n](https://n8n.io/) for automation, and PostgreSQL for metadata. Works on
 Windows, macOS, and Linux — no host compilation, no external APIs.
 
-## The economics
-
-<p align="center">
-  <img src="docs/images/warm-once.svg" alt="The expensive read happens once per document and survives restarts." width="100%">
-</p>
-
-The expensive part — the model reading the whole document — happens **exactly
-once per document**, and the resulting KV cache survives restarts. Ingesting a
-28k-token manual takes minutes on CPU; every question after that evaluates only
-a few dozen tokens. The `/query` response proves it in the `timings` block —
-after the first query, `prompt_tokens_evaluated` collapses to your question's
-length while `cache_source` reports where the state came from:
-
-```jsonc
-// POST /query {"question": "What are the safety limits in section 4?"}
-{
-  "answer": "Section 4 caps continuous load at 8 A and peak at 12 A for 10 s …",
-  "document": { "id": 7, "file_name": "manual.pdf", "n_tokens": 28400 },
-  "duration_ms": 640,
-  "timings": {
-    "prompt_tokens_evaluated": 43,      // just the question — not the 28,400-token doc
-    "prompt_tokens_from_cache": 28400,  // the whole document, reused from the KV cache
-    "answer_tokens": 96,
-    "cache_source": "memory"            // "memory" hot · "disk" restored · "recomputed" self-heal
-  }
-}
-```
-
-The very first query on a document (or the first after `cache_source: "disk"`
-following a restart) evaluates the full prefix once; from then on it's tens of
-tokens. **Numbers, not adjectives — that's the whole point.** (The JSON above
-is an illustrative response — the *shape* is guaranteed by the mechanism, and
-your own first query prints the real receipt.)
-
-## Cache states and latency — the behaviour model
-
-Earlier versions made you choose between hand-managed modes (warm-up, basic,
-fallback, disabled). v2 has **one automatic policy** and three observable
-states — and every answer's `timings.cache_source` tells you which one served it:
-
-| State | When it happens | Added latency | Memory effect |
-|-------|-----------------|---------------|---------------|
-| `memory` — hot in a slot | The document was ingested or queried recently; up to `CAG_SLOTS` documents stay hot at once (least-recently-used gets evicted) | **None** — only your question and the answer are computed | Uses the slot's share of the fixed KV pool |
-| `disk` — restored | First query on a document after a restart or eviction | **Seconds** — the saved KV state is read from disk; the text is *not* re-processed | Loads into a slot (evicting the LRU document if all slots are busy) |
-| `recomputed` — self-heal | Cache file missing or invalidated (e.g. you switched models) | The one-time full read, **once** — then it re-saves itself and is fast again | Same as a fresh warm |
-
-**Sizing against slot thrash:** if concurrent consumers alternate between more
-documents than `CAG_SLOTS`, every switch evicts a hot document and restores
-another from disk — so size `CAG_SLOTS` to at least the number of documents in
-active rotation, and each still gets `LLAMA_CTX_SIZE ÷ CAG_SLOTS` of context.
-Note that slots parallelize *residency*, not generation: all inference is
-serialized through the engine, so a long warm on one slot delays queries on
-the others — ingest big documents off-peak if that matters.
-
-Three strategy decisions are baked in, so there is nothing to manage:
-
-- **Warm-at-ingest.** The expensive read happens when a document is *added*
-  (ingest returns only after the cache is saved to disk) — so the first
-  question is never the slow one. Latency is paid where you expect it: at drop
-  time, visibly, once.
-- **Always-warm server.** v1's "warm-up mode" (a persistent model instance held
-  in RAM) is simply how llama-server always runs now — generalized to
-  `CAG_SLOTS` simultaneous hot documents. And v1's 8,000-character fallback
-  mode — the silent truncator behind "spotty" answers — is gone entirely:
-  there is no degraded path, only the three honest states above.
-- **Fresh context by default.** A `/query` without `history` is a clean-room
-  question against the document; pass `history` when you *want* a conversation.
-
-### Resource anatomy — what uses what, when
-
-If earlier CAG experiments left you wary of mystery memory pressure, here is
-the whole resource story. There is exactly **one big constant** and everything
-else is a burst:
-
-| What's happening | Compute (CPU/GPU) | Memory | Disk |
-|---|---|---|---|
-| **Stack up, idle** | ~zero | **The constant:** model weights (~6.5 GB default) + the fixed KV pool — allocated once at startup, flat forever after | — |
-| Ingest / warm a document | Sustained — the one real workload (minutes on CPU, far less accelerated) | No change (the pool already exists) | One write burst: the cache file |
-| Question on a hot document | Brief burst (question + answer tokens only) | No change | — |
-| First question after restart | ~none — no re-processing | No change | One read burst (cache file → pool) |
-| Self-heal (lost/invalid cache) | One ingest-worth, once | No change | Rewrites the cache file |
-| **Adding more documents** | — | **No change — ever** | +1 file each (`cache_bytes` in the nightly report) |
-| Switching models | — | New constant after restart | One-time download; old caches sit stale until re-warm or cleanup |
-
-**The pressure knob is the pool, and you own it:** pool size ≈
-`LLAMA_CTX_SIZE` × slots' KV cost — halved already by the default `q8_0`
-quantization, and scaled by your model choice. Too much pressure → lower
-`LLAMA_CTX_SIZE`, pick a smaller model, or keep `CAG_SLOTS=1`
-([docs/HARDWARE.md](docs/HARDWARE.md) has the arithmetic per tier). With GPU
-offload the weights and pool live in VRAM instead (`--gpu-layers`); on unified
-memory (Apple/Strix Halo) it's all one pool — which is why those machines are
-this architecture's natural home.
-
-**And it's observable, not asserted:** `python llamacag.py status` now prints
-live per-service CPU/RAM; llama-server's startup log states its exact
-weights/KV allocations (`python llamacag.py logs llama-server`); the nightly
-maintenance report tracks cache disk. Contrast with v1, which loaded the model
-*and* whole pickled cache states inside the desktop app's own process — RAM
-pressure that grew with use and answered to nothing. v2's footprint is one
-predictable allocation in one container, tunable from `.env`, with documents
-scaling on disk.
-
 ## Where this shines
 
 The mechanism is generic, but it pays off hardest in a specific shape of
@@ -193,28 +91,10 @@ while only the questions and answers ever occupy the agent's own context.
 parallel slots — see [docs/HARDWARE.md](docs/HARDWARE.md) for per-tier model
 recommendations, `.env` presets, and the native-Mac (Metal) recipe.
 
-### LLM wikis, second brains — and the grounding oracle
+## The grounding oracle — force any AI to stick to your rulebook
 
-Karpathy's **LLM Wiki** pattern (April 2026) argues that knowledge should
-*compound*: sources get read once and integrated into an interlinked,
-AI-maintained wiki, instead of being rediscovered by retrieval on every query —
-"the wiki is the product, the chat is just the interface." Notice what that
-pattern *produces*: one dense, curated, self-consistent canonical document.
-**That is exactly the input shape this stack exists to serve.** The wiki (or
-your second brain — an Obsidian vault digest, a research corpus summary) goes
-in the watch folder; from then on it is pinned, whole, in local KV state. The
-two patterns compose cleanly: the wiki layer *curates* knowledge, this layer
-*serves* it — read once, ask forever, updated automatically on re-drop.
-
-It also genuinely **enhances** the wiki pattern in two ways. First, coherence:
-a wiki's defining feature is its cross-references — and retrieval breaks them
-by fetching one page at a time, while whole-document context sees every page
-and every link *simultaneously* on every answer. Second, economics: the
-compounding knowledge stops re-entering anyone's context window; agents consult
-it as a tool (MCP) instead of carrying it.
-
-And then there's the sharpest use: **the grounding oracle** — a hash check for
-facts. At `temperature 0` with the built-in rule ("answer only from the
+The sharpest use is **the grounding oracle** — a hash check for facts. At
+`temperature 0` with the built-in rule ("answer only from the
 document; say so if absent"), the pinned canon becomes a *deterministic
 verifier*: same claim + same document → same verdict, every time.
 
@@ -245,11 +125,414 @@ curl -X POST http://localhost:5678/webhook/cag/verify \
 This closes a **productized critique loop**: a drafting agent (Claude Code, or
 any model) emits claims → the verify webhook checks each against the canon →
 the agent refines the ones that come back `absent` or `contradicted`, before
-anything ships. Second brains and LLM wikis organize knowledge — this gives
-them teeth: the knowledge stops being something the model vaguely remembers
-and becomes something it must consult, and can be caught deviating from.
+anything ships.
 
-## Architecture
+### It composes with LLM wikis and second brains
+
+Karpathy's **LLM Wiki** pattern (April 2026) argues that knowledge should
+*compound*: sources get read once and integrated into an interlinked,
+AI-maintained wiki, instead of being rediscovered by retrieval on every query —
+"the wiki is the product, the chat is just the interface." Notice what that
+pattern *produces*: one dense, curated, self-consistent canonical document.
+**That is exactly the input shape this stack exists to serve.** The wiki (or
+your second brain — an Obsidian vault digest, a research corpus summary) goes
+in the watch folder; from then on it is pinned, whole, in local KV state. The
+two patterns compose cleanly: the wiki layer *curates* knowledge, this layer
+*serves* it — read once, ask forever, updated automatically on re-drop.
+
+It also genuinely **enhances** the wiki pattern in two ways. First, coherence:
+a wiki's defining feature is its cross-references — and retrieval breaks them
+by fetching one page at a time, while whole-document context sees every page
+and every link *simultaneously* on every answer. Second, economics: the
+compounding knowledge stops re-entering anyone's context window; agents consult
+it as a tool (MCP) instead of carrying it.
+
+Second brains and LLM wikis organize knowledge — this gives them teeth: the
+knowledge stops being something the model vaguely remembers and becomes
+something it must consult, and can be caught deviating from.
+
+<p align="center">
+  <img src="docs/images/verify-workflow.svg" alt="The bundled claim-verification workflow as a node graph: webhook → split claims → HTTP verify → collect verdict / mark failure → aggregate → respond." width="100%">
+</p>
+
+The bundled verification workflow, as imported into n8n — five of these ship in `n8n/workflows/`.
+
+## Quick start
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+(or docker + compose v2) and Python 3.10+.
+
+```bash
+git clone https://github.com/VictorSteinbock/llama-cag-n8n-reworked.git
+cd llama-cag-n8n-reworked
+
+python llamacag.py setup     # writes .env with generated secrets
+python llamacag.py start     # builds + starts the stack
+```
+
+First boot downloads the default model (Gemma 4 12B QAT, ~6.5 GB) from Hugging
+Face into a Docker volume; after that everything runs offline. Watch progress
+with `python llamacag.py logs llama-server`, and confirm readiness with
+`python llamacag.py status`.
+
+**Set up n8n (one-time, ~2 minutes):**
+
+1. Open http://localhost:5678 and create the local owner account.
+2. Import the five workflows from [`n8n/workflows/`](n8n/workflows/)
+   (*Workflows → ⋯ → Import from file*).
+3. Activate each one. **No credentials to configure** — the workflows only call
+   `cag-api` over the internal Docker network.
+
+**Use it:**
+
+```bash
+# 1. Make a document queryable (or just drop a file into ./documents/)
+curl -X POST http://localhost:8000/documents -F "file=@manual.pdf"
+
+# 2. Ask questions — via n8n's webhook…
+curl -X POST http://localhost:5678/webhook/cag/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the safety limits in section 4?"}'
+
+# …or directly, or with the helper:
+python llamacag.py query "What are the safety limits in section 4?"
+```
+
+The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
+and how many prompt tokens were actually evaluated — after the first query
+that number should be tiny.
+
+## The economics — the receipt
+
+Every answer comes with a receipt. Here is what it looks like when a
+28,400-token manual costs 43 tokens of actual compute:
+
+<p align="center">
+  <img src="docs/images/warm-once.svg" alt="The expensive read happens once per document and survives restarts." width="100%">
+</p>
+
+The expensive part — the model reading the whole document — happens **exactly
+once per document**, and the resulting KV cache survives restarts. Ingesting a
+28k-token manual takes minutes on CPU; every question after that evaluates only
+a few dozen tokens. The `/query` response proves it in the `timings` block —
+after the first query, `prompt_tokens_evaluated` collapses to your question's
+length while `cache_source` reports where the state came from:
+
+```jsonc
+// POST /query {"question": "What are the safety limits in section 4?"}
+{
+  "answer": "Section 4 caps continuous load at 8 A and peak at 12 A for 10 s …",
+  "document": { "id": 7, "file_name": "manual.pdf", "n_tokens": 28400 },
+  "duration_ms": 640,
+  "timings": {
+    "prompt_tokens_evaluated": 43,      // just the question — not the 28,400-token doc
+    "prompt_tokens_from_cache": 28400,  // the whole document, reused from the KV cache
+    "answer_tokens": 96,
+    "cache_source": "memory"            // "memory" hot · "disk" restored · "recomputed" self-heal
+  }
+}
+```
+
+The very first query on a document (or the first after `cache_source: "disk"`
+following a restart) evaluates the full prefix once; from then on it's tens of
+tokens. **Numbers, not adjectives — that's the whole point.** (The JSON above
+is an illustrative response — the *shape* is guaranteed by the mechanism, and
+your own first query prints the real receipt.)
+
+## Use it from Claude Code (MCP)
+
+The `mcp/` package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
+client — Claude Code, Claude Desktop, or any 2026 agent — as a local
+document-memory tool. Instead of pasting a dense spec into the agent's context on
+every task and paying to re-read it each turn, the agent calls the `ask_document`
+tool: only the question and the answer cross the boundary, while the document
+stays pinned in a local KV cache the cloud model never has to carry. It's a thin
+stdio server (`python -m cag_mcp`) that just forwards to `cag-api` at
+`CAG_API_URL` (default `http://localhost:8000`), and it offers four tools —
+`list_documents`, `ask_document`, `ingest_text`, `ingest_file`.
+
+Register it with Claude Code (`pip install -e ./mcp` first, in the stack repo):
+
+```bash
+claude mcp add cag -- python -m cag_mcp
+```
+
+…or add it to a project's `.mcp.json`:
+
+```jsonc
+{
+  "mcpServers": {
+    "cag": {
+      "command": "python",
+      "args": ["-m", "cag_mcp"],
+      "env": { "CAG_API_URL": "http://localhost:8000" }
+    }
+  }
+}
+```
+
+<p align="center">
+  <img src="docs/images/claude-code-mcp.svg" alt="Claude Code calls the local ask_document tool; only questions and answers travel, the spec stays pinned locally." width="100%">
+</p>
+
+**What a real coding session looks like.** You ingested the vendor spec once
+(dropped it in the watch folder); now, mid-refactor, Claude Code consults it as
+a tool instead of carrying it:
+
+<p align="center">
+  <img src="docs/images/mcp-session.svg" alt="Animated terminal: Claude Code calls the cag ask_document MCP tool mid-refactor and gets a grounded answer with a token receipt." width="100%">
+</p>
+
+Simulated session — run it yourself for the live version.
+
+```text
+> refactor the telemetry module to comply with the vendor spec
+
+⏺ I'll check the spec's exact requirements before touching the code.
+
+⏺ cag - ask_document (MCP)
+  question: "What payload fields, types and units does the vendor require
+             for telemetry events, and what timestamp format?"
+  ⎿ Events require device_id (string), ts_utc (ISO-8601 with milliseconds),
+    seq (monotonic int) and readings[] using unit-suffixed keys — temp_c,
+    load_pct, volt_mv. Unknown keys are rejected, not ignored (§4.2).
+    [doc 3 vendor-spec.pdf · cache: memory · evaluated 38 of 41,772 prompt tokens · 590 ms]
+
+⏺ Unit-suffixed keys with strict rejection — renaming the fields in
+  telemetry.py and adding a schema guard…
+```
+
+The 41,772-token spec was evaluated **once**, weeks ago, on your hardware. This
+turn cost the cloud model ~40 tokens of question and ~100 of answer (plus a few
+hundred tokens of tool definitions, once per session — honesty in accounting).
+The spec itself never occupies the agent's context: not this session, not after
+compaction, not next month. The same shape works as
+a **second brain**: pin your notes, your research corpus digest, or a project's
+design doc, and any MCP-capable agent — coding or otherwise — gets a private,
+grounded, queryable memory that never inflates its context and never leaves
+your machine.
+
+## Running it as a dedicated chatbot
+
+The original motivation for this project — a narrow-domain support bot — is a
+configuration, not a fork. Two things matter:
+
+**Retrieval is not a dial here.** The model *always* has the entire document in
+context — there is no top-k retrieval step that can miss. What `temperature`
+controls is only the **wording** of the generated answer:
+
+- **Razor-sharp extractive mode** (support/compliance bots): send
+  `"temperature": 0` per request — or set it stack-wide with
+  `DEFAULT_TEMPERATURE=0.0` in `.env` — for deterministic, quote-like answers.
+  Same question → same answer, every time.
+- **Hybrid mode** (assistant-style): the default (`0.2`) keeps answers grounded
+  but lets the model synthesize and phrase naturally across the whole document —
+  full context *plus* room to compose. Raise toward `0.7` only if you want
+  looser prose; grounding still comes from the system rule.
+
+**The guardrail is the system prompt**, not luck: every query is wrapped in
+*"answer using only the information in the document; if it's not there, say so
+plainly"* (the `SYSTEM_TEMPLATE` constant in `api/app/cag.py` — edit it there
+if your bot needs a persona or a refusal style, then rebuild; existing caches
+re-warm themselves on next use). Wire your bot's frontend to the n8n webhook
+(`POST /webhook/cag/query`, with `history` for multi-turn), cap
+`DEFAULT_MAX_ANSWER_TOKENS` if you want terse replies, and that's the whole
+deployment.
+
+## The API
+
+Interactive docs at http://localhost:8000/docs.
+
+| Endpoint | What it does |
+|----------|--------------|
+| `POST /documents` | Multipart file upload (`.txt` `.md` `.html` text-based `.pdf`) → extract, token-count, warm the KV cache, persist it. Uploads are capped at `MAX_UPLOAD_MB` (default 50 MB) → `413` if exceeded |
+| `POST /documents/text` | Same for raw text: `{"text": "...", "file_name": "notes.txt"}` |
+| `GET /documents` | Registry with status, token counts, usage |
+| `DELETE /documents/{id}` | Remove document + its cache file |
+| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
+| `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
+| `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
+
+Duplicate content (same SHA-256) is detected and never re-warmed. A document
+that doesn't fit the context window is rejected at ingest with a `413` telling
+you the measured token count and which knob to raise.
+
+### Structured output
+
+Pass a `json_schema` (a JSON Schema object) on `/query` and the answer is
+**guaranteed to be valid JSON matching that schema** — llama-server
+grammar-samples the completion, so you can parse the reply directly with no
+regex or retry loop. It constrains sampling only: the cached document prefix is
+byte-identical to any other query, so a schema-constrained answer is exactly as
+cheap. This is what makes the [grounding oracle](#the-grounding-oracle--force-any-ai-to-stick-to-your-rulebook)
+above a *typed* verifier — a claim in, a machine-readable verdict out:
+
+```bash
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+        "question": "Verify strictly against the document: \"The peak current limit is 12 A\". Give your verdict and the exact supporting or contradicting passage.",
+        "temperature": 0,
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "claim":   { "type": "string" },
+            "verdict": { "enum": ["supported", "absent", "contradicted"] },
+            "quote":   { "type": "string" }
+          },
+          "required": ["claim", "verdict", "quote"]
+        }
+      }'
+# → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\"}", …}
+```
+
+## Choosing a model (state of play, mid-2026)
+
+Set `LLAMA_MODEL` in `.env` to any GGUF on Hugging Face (`repo[:quant]`),
+then `python llamacag.py stop && python llamacag.py start`:
+
+| Model | Context | Download | Fits comfortably in | Notes |
+|-------|---------|----------|---------------------|-------|
+| `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* | 262k | 6.5 GB | 16 GB RAM | Google's official QAT build — Q4 with near-full quality, Apache 2.0 |
+| `google/gemma-4-E4B-it-qat-q4_0-gguf` | 128k+ | ~3 GB | 8 GB RAM | Edge-class Gemma 4, lightest sensible option |
+| `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | 256k+ | ~5.5 GB | 16 GB RAM | Strongest small dense alternative |
+| `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | 256k | ~15 GB | 32 GB RAM | MoE: 26B-class answers at ~4B-active speed — best quality-per-second on big-RAM CPU boxes |
+| `ggml-org/GLM-4.7-Flash-GGUF:Q4_K` | 202k | ~27 GB | 64 GB RAM | Workstation class |
+
+Two knobs matter alongside the model:
+
+- **`LLAMA_CTX_SIZE`** (default **65536**) — total context, split across slots;
+  each document must fit `ctx ÷ slots − 1120` (1024 answer + 96 prompt
+  head-room). KV memory scales with it, but **`LLAMA_CACHE_TYPE_KV=q8_0`**
+  (the default) halves that at negligible quality cost — this is why 64k is
+  now an affordable default.
+- **`CAG_SLOTS`** (default **1**) — how many documents stay *hot in RAM* at
+  once. With 2–4 slots, alternating between documents never touches disk;
+  llama-server divides the context between them. Slots parallelize
+  *residency*, not generation: all inference is serialized through the
+  engine, so a long warm (minutes for a big document) delays queries on
+  other slots — ingest big documents via the watch folder off-peak if that
+  matters.
+
+**Changing model or quant invalidates existing caches**; they self-heal
+(recompute + re-save) on their next query. cag-api enforces this itself: it
+fingerprints the served model (llama-server's `/props` `model_path`) in a
+`model.marker` file next to the caches and wipes stale `*.bin` files once on
+mismatch — necessary because llama.cpp validates restored state files only
+*structurally*, so a same-shaped model switch (different weight quant, a
+fine-tune) would otherwise restore silently.
+
+### GPU & native acceleration
+
+To be clear about intent: **CPU is the universal floor, not the design point.**
+The stack runs anywhere Docker does, but the fast path — and the original
+design target — is accelerated inference: Metal on Apple Silicon (unified
+memory is ideal for CAG, since model *and* KV caches share one big pool), CUDA
+on NVIDIA, Vulkan on Intel/AMD. Pick your lane:
+
+- **Apple Silicon (Metal):** Docker Desktop on macOS has **no GPU passthrough**,
+  so run llama-server natively (`brew install llama.cpp`) and keep the rest of
+  the stack in Docker: `python llamacag.py start --native-llama` prints the
+  exact host command and the two `.env` lines that point `cag-api` at it. Full
+  recipe in [docs/HARDWARE.md](docs/HARDWARE.md).
+
+- **NVIDIA:** `python llamacag.py start --gpu` (CUDA image; NVIDIA Container
+  Toolkit required — bundled with Docker Desktop on Windows).
+- **Intel Arc / AMD:** `python llamacag.py start --vulkan` — passes `/dev/dri`
+  through, so it works on **Linux hosts**. Docker Desktop's VM has no `/dev/dri`;
+  on Windows laptops (including Intel Arc iGPUs) run the CPU stack — a modern
+  multi-core CPU handles the 4–12B class fine, and CAG means the expensive
+  prompt processing happens only once per document anyway.
+
+## Configuration
+
+Everything lives in `.env` (created by `setup`; see [.env.example](.env.example)
+for all knobs and comments). The defaults are sensible; the ones you might touch:
+
+| Variable | Default | |
+|----------|---------|---|
+| `LLAMA_MODEL` | `google/gemma-4-12B-it-qat-q4_0-gguf` | Model to download & serve |
+| `LLAMA_CTX_SIZE` | `65536` | Total context (split across slots) |
+| `CAG_SLOTS` | `1` | Documents kept hot in RAM simultaneously (residency only — generation stays serialized) |
+| `LLAMA_CACHE_TYPE_KV` | `q8_0` | KV cache precision (`f16` to disable quantization) |
+| `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
+| `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
+| `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
+| `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
+
+## Under the hood
+
+Everything below is the machinery; nothing here is required reading to use the stack.
+
+### Cache states and latency — the behaviour model
+
+Earlier versions made you choose between hand-managed modes (warm-up, basic,
+fallback, disabled). v2 has **one automatic policy** and three observable
+states — and every answer's `timings.cache_source` tells you which one served it:
+
+| State | When it happens | Added latency | Memory effect |
+|-------|-----------------|---------------|---------------|
+| `memory` — hot in a slot | The document was ingested or queried recently; up to `CAG_SLOTS` documents stay hot at once (least-recently-used gets evicted) | **None** — only your question and the answer are computed | Uses the slot's share of the fixed KV pool |
+| `disk` — restored | First query on a document after a restart or eviction | **Seconds** — the saved KV state is read from disk; the text is *not* re-processed | Loads into a slot (evicting the LRU document if all slots are busy) |
+| `recomputed` — self-heal | Cache file missing or invalidated (e.g. you switched models) | The one-time full read, **once** — then it re-saves itself and is fast again | Same as a fresh warm |
+
+**Sizing against slot thrash:** if concurrent consumers alternate between more
+documents than `CAG_SLOTS`, every switch evicts a hot document and restores
+another from disk — so size `CAG_SLOTS` to at least the number of documents in
+active rotation, and each still gets `LLAMA_CTX_SIZE ÷ CAG_SLOTS` of context.
+Note that slots parallelize *residency*, not generation: all inference is
+serialized through the engine, so a long warm on one slot delays queries on
+the others — ingest big documents off-peak if that matters.
+
+Three strategy decisions are baked in, so there is nothing to manage:
+
+- **Warm-at-ingest.** The expensive read happens when a document is *added*
+  (ingest returns only after the cache is saved to disk) — so the first
+  question is never the slow one. Latency is paid where you expect it: at drop
+  time, visibly, once.
+- **Always-warm server.** v1's "warm-up mode" (a persistent model instance held
+  in RAM) is simply how llama-server always runs now — generalized to
+  `CAG_SLOTS` simultaneous hot documents. And v1's 8,000-character fallback
+  mode — the silent truncator behind "spotty" answers — is gone entirely:
+  there is no degraded path, only the three honest states above.
+- **Fresh context by default.** A `/query` without `history` is a clean-room
+  question against the document; pass `history` when you *want* a conversation.
+
+### Resource anatomy — what uses what, when
+
+If earlier CAG experiments left you wary of mystery memory pressure, here is
+the whole resource story. There is exactly **one big constant** and everything
+else is a burst:
+
+| What's happening | Compute (CPU/GPU) | Memory | Disk |
+|---|---|---|---|
+| **Stack up, idle** | ~zero | **The constant:** model weights (~6.5 GB default) + the fixed KV pool — allocated once at startup, flat forever after | — |
+| Ingest / warm a document | Sustained — the one real workload (minutes on CPU, far less accelerated) | No change (the pool already exists) | One write burst: the cache file |
+| Question on a hot document | Brief burst (question + answer tokens only) | No change | — |
+| First question after restart | ~none — no re-processing | No change | One read burst (cache file → pool) |
+| Self-heal (lost/invalid cache) | One ingest-worth, once | No change | Rewrites the cache file |
+| **Adding more documents** | — | **No change — ever** | +1 file each (`cache_bytes` in the nightly report) |
+| Switching models | — | New constant after restart | One-time download; old caches sit stale until re-warm or cleanup |
+
+**The pressure knob is the pool, and you own it:** pool size ≈
+`LLAMA_CTX_SIZE` × slots' KV cost — halved already by the default `q8_0`
+quantization, and scaled by your model choice. Too much pressure → lower
+`LLAMA_CTX_SIZE`, pick a smaller model, or keep `CAG_SLOTS=1`
+([docs/HARDWARE.md](docs/HARDWARE.md) has the arithmetic per tier). With GPU
+offload the weights and pool live in VRAM instead (`--gpu-layers`); on unified
+memory (Apple/Strix Halo) it's all one pool — which is why those machines are
+this architecture's natural home.
+
+**And it's observable, not asserted:** `python llamacag.py status` now prints
+live per-service CPU/RAM; llama-server's startup log states its exact
+weights/KV allocations (`python llamacag.py logs llama-server`); the nightly
+maintenance report tracks cache disk. Contrast with v1, which loaded the model
+*and* whole pickled cache states inside the desktop app's own process — RAM
+pressure that grew with use and answered to nothing. v2's footprint is one
+predictable allocation in one container, tunable from `.env`, with documents
+scaling on disk.
+
+### Architecture
 
 <p align="center">
   <img src="docs/images/architecture.svg" alt="Four containers in Docker Compose: n8n, cag-api, llama-server, PostgreSQL, with models and kv_caches volumes." width="100%">
@@ -331,266 +614,6 @@ Ancestry: this is a ground-up rebuild of the original
 had the right idea before llama.cpp's slot save/restore made honest CAG a config
 option instead of a science project.
 
-## Quick start
-
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-(or docker + compose v2) and Python 3.10+.
-
-```bash
-git clone https://github.com/VictorSteinbock/llama-cag-n8n-reworked.git
-cd llama-cag-n8n-reworked
-
-python llamacag.py setup     # writes .env with generated secrets
-python llamacag.py start     # builds + starts the stack
-```
-
-First boot downloads the default model (Gemma 4 12B QAT, ~6.5 GB) from Hugging
-Face into a Docker volume; after that everything runs offline. Watch progress
-with `python llamacag.py logs llama-server`, and confirm readiness with
-`python llamacag.py status`.
-
-**Set up n8n (one-time, ~2 minutes):**
-
-1. Open http://localhost:5678 and create the local owner account.
-2. Import the five workflows from [`n8n/workflows/`](n8n/workflows/)
-   (*Workflows → ⋯ → Import from file*).
-3. Activate each one. **No credentials to configure** — the workflows only call
-   `cag-api` over the internal Docker network.
-
-**Use it:**
-
-```bash
-# 1. Make a document queryable (or just drop a file into ./documents/)
-curl -X POST http://localhost:8000/documents -F "file=@manual.pdf"
-
-# 2. Ask questions — via n8n's webhook…
-curl -X POST http://localhost:5678/webhook/cag/query \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are the safety limits in section 4?"}'
-
-# …or directly, or with the helper:
-python llamacag.py query "What are the safety limits in section 4?"
-```
-
-The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
-and how many prompt tokens were actually evaluated — after the first query
-that number should be tiny.
-
-## The API
-
-Interactive docs at http://localhost:8000/docs.
-
-| Endpoint | What it does |
-|----------|--------------|
-| `POST /documents` | Multipart file upload (`.txt` `.md` `.html` text-based `.pdf`) → extract, token-count, warm the KV cache, persist it |
-| `POST /documents/text` | Same for raw text: `{"text": "...", "file_name": "notes.txt"}` |
-| `GET /documents` | Registry with status, token counts, usage |
-| `DELETE /documents/{id}` | Remove document + its cache file |
-| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
-| `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
-| `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
-
-Duplicate content (same SHA-256) is detected and never re-warmed. A document
-that doesn't fit the context window is rejected at ingest with a `413` telling
-you the measured token count and which knob to raise.
-
-### Structured output
-
-Pass a `json_schema` (a JSON Schema object) on `/query` and the answer is
-**guaranteed to be valid JSON matching that schema** — llama-server
-grammar-samples the completion, so you can parse the reply directly with no
-regex or retry loop. It constrains sampling only: the cached document prefix is
-byte-identical to any other query, so a schema-constrained answer is exactly as
-cheap. This is what makes the [grounding oracle](#llm-wikis-second-brains--and-the-grounding-oracle)
-below a *typed* verifier — a claim in, a machine-readable verdict out:
-
-```bash
-curl -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{
-        "question": "Verify strictly against the document: \"The peak current limit is 12 A\". Give your verdict and the exact supporting or contradicting passage.",
-        "temperature": 0,
-        "json_schema": {
-          "type": "object",
-          "properties": {
-            "claim":   { "type": "string" },
-            "verdict": { "enum": ["supported", "absent", "contradicted"] },
-            "quote":   { "type": "string" }
-          },
-          "required": ["claim", "verdict", "quote"]
-        }
-      }'
-# → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\"}", …}
-```
-
-## Use it from Claude Code (MCP)
-
-The `mcp/` package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
-client — Claude Code, Claude Desktop, or any 2026 agent — as a local
-document-memory tool. Instead of pasting a dense spec into the agent's context on
-every task and paying to re-read it each turn, the agent calls the `ask_document`
-tool: only the question and the answer cross the boundary, while the document
-stays pinned in a local KV cache the cloud model never has to carry. It's a thin
-stdio server (`python -m cag_mcp`) that just forwards to `cag-api` at
-`CAG_API_URL` (default `http://localhost:8000`), and it offers four tools —
-`list_documents`, `ask_document`, `ingest_text`, `ingest_file`.
-
-Register it with Claude Code (`pip install -e ./mcp` first, in the stack repo):
-
-```bash
-claude mcp add cag -- python -m cag_mcp
-```
-
-…or add it to a project's `.mcp.json`:
-
-```jsonc
-{
-  "mcpServers": {
-    "cag": {
-      "command": "python",
-      "args": ["-m", "cag_mcp"],
-      "env": { "CAG_API_URL": "http://localhost:8000" }
-    }
-  }
-}
-```
-
-<p align="center">
-  <img src="docs/images/claude-code-mcp.svg" alt="Claude Code calls the local ask_document tool; only questions and answers travel, the spec stays pinned locally." width="100%">
-</p>
-
-**What a real coding session looks like.** You ingested the vendor spec once
-(dropped it in the watch folder); now, mid-refactor, Claude Code consults it as
-a tool instead of carrying it:
-
-```text
-> refactor the telemetry module to comply with the vendor spec
-
-⏺ I'll check the spec's exact requirements before touching the code.
-
-⏺ cag - ask_document (MCP)
-  question: "What payload fields, types and units does the vendor require
-             for telemetry events, and what timestamp format?"
-  ⎿ Events require device_id (string), ts_utc (ISO-8601 with milliseconds),
-    seq (monotonic int) and readings[] using unit-suffixed keys — temp_c,
-    load_pct, volt_mv. Unknown keys are rejected, not ignored (§4.2).
-    [doc 3 vendor-spec.pdf · cache: memory · evaluated 38 of 41,772 prompt tokens · 590 ms]
-
-⏺ Unit-suffixed keys with strict rejection — renaming the fields in
-  telemetry.py and adding a schema guard…
-```
-
-The 41,772-token spec was evaluated **once**, weeks ago, on your hardware. This
-turn cost the cloud model ~40 tokens of question and ~100 of answer (plus a few
-hundred tokens of tool definitions, once per session — honesty in accounting).
-The spec itself never occupies the agent's context: not this session, not after
-compaction, not next month. The same shape works as
-a **second brain**: pin your notes, your research corpus digest, or a project's
-design doc, and any MCP-capable agent — coding or otherwise — gets a private,
-grounded, queryable memory that never inflates its context and never leaves
-your machine.
-
-## Running it as a dedicated chatbot
-
-The original motivation for this project — a narrow-domain support bot — is a
-configuration, not a fork. Two things matter:
-
-**Retrieval is not a dial here.** The model *always* has the entire document in
-context — there is no top-k retrieval step that can miss. What `temperature`
-controls is only the **wording** of the generated answer:
-
-- **Razor-sharp extractive mode** (support/compliance bots): send
-  `"temperature": 0` per request — or set it stack-wide with
-  `DEFAULT_TEMPERATURE=0.0` in `.env` — for deterministic, quote-like answers.
-  Same question → same answer, every time.
-- **Hybrid mode** (assistant-style): the default (`0.2`) keeps answers grounded
-  but lets the model synthesize and phrase naturally across the whole document —
-  full context *plus* room to compose. Raise toward `0.7` only if you want
-  looser prose; grounding still comes from the system rule.
-
-**The guardrail is the system prompt**, not luck: every query is wrapped in
-*"answer using only the information in the document; if it's not there, say so
-plainly"* (the `SYSTEM_TEMPLATE` constant in `api/app/cag.py` — edit it there
-if your bot needs a persona or a refusal style, then rebuild; existing caches
-re-warm themselves on next use). Wire your bot's frontend to the n8n webhook
-(`POST /webhook/cag/query`, with `history` for multi-turn), cap
-`DEFAULT_MAX_ANSWER_TOKENS` if you want terse replies, and that's the whole
-deployment.
-
-## Choosing a model (state of play, mid-2026)
-
-Set `LLAMA_MODEL` in `.env` to any GGUF on Hugging Face (`repo[:quant]`),
-then `python llamacag.py stop && python llamacag.py start`:
-
-| Model | Context | Download | Fits comfortably in | Notes |
-|-------|---------|----------|---------------------|-------|
-| `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* | 262k | 6.5 GB | 16 GB RAM | Google's official QAT build — Q4 with near-full quality, Apache 2.0 |
-| `google/gemma-4-E4B-it-qat-q4_0-gguf` | 128k+ | ~3 GB | 8 GB RAM | Edge-class Gemma 4, lightest sensible option |
-| `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | 256k+ | ~5.5 GB | 16 GB RAM | Strongest small dense alternative |
-| `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | 256k | ~15 GB | 32 GB RAM | MoE: 26B-class answers at ~4B-active speed — best quality-per-second on big-RAM CPU boxes |
-| `ggml-org/GLM-4.7-Flash-GGUF:Q4_K` | 202k | ~27 GB | 64 GB RAM | Workstation class |
-
-Two knobs matter alongside the model:
-
-- **`LLAMA_CTX_SIZE`** (default **65536**) — total context, split across slots;
-  each document must fit `ctx ÷ slots − 1120` (1024 answer + 96 prompt
-  head-room). KV memory scales with it, but **`LLAMA_CACHE_TYPE_KV=q8_0`**
-  (the default) halves that at negligible quality cost — this is why 64k is
-  now an affordable default.
-- **`CAG_SLOTS`** (default **1**) — how many documents stay *hot in RAM* at
-  once. With 2–4 slots, alternating between documents never touches disk;
-  llama-server divides the context between them. Slots parallelize
-  *residency*, not generation: all inference is serialized through the
-  engine, so a long warm (minutes for a big document) delays queries on
-  other slots — ingest big documents via the watch folder off-peak if that
-  matters.
-
-**Changing model or quant invalidates existing caches**; they self-heal
-(recompute + re-save) on their next query. cag-api enforces this itself: it
-fingerprints the served model (llama-server's `/props` `model_path`) in a
-`model.marker` file next to the caches and wipes stale `*.bin` files once on
-mismatch — necessary because llama.cpp validates restored state files only
-*structurally*, so a same-shaped model switch (different weight quant, a
-fine-tune) would otherwise restore silently.
-
-### GPU & native acceleration
-
-To be clear about intent: **CPU is the universal floor, not the design point.**
-The stack runs anywhere Docker does, but the fast path — and the original
-design target — is accelerated inference: Metal on Apple Silicon (unified
-memory is ideal for CAG, since model *and* KV caches share one big pool), CUDA
-on NVIDIA, Vulkan on Intel/AMD. Pick your lane:
-
-- **Apple Silicon (Metal):** Docker Desktop on macOS has **no GPU passthrough**,
-  so run llama-server natively (`brew install llama.cpp`) and keep the rest of
-  the stack in Docker: `python llamacag.py start --native-llama` prints the
-  exact host command and the two `.env` lines that point `cag-api` at it. Full
-  recipe in [docs/HARDWARE.md](docs/HARDWARE.md).
-
-- **NVIDIA:** `python llamacag.py start --gpu` (CUDA image; NVIDIA Container
-  Toolkit required — bundled with Docker Desktop on Windows).
-- **Intel Arc / AMD:** `python llamacag.py start --vulkan` — passes `/dev/dri`
-  through, so it works on **Linux hosts**. Docker Desktop's VM has no `/dev/dri`;
-  on Windows laptops (including Intel Arc iGPUs) run the CPU stack — a modern
-  multi-core CPU handles the 4–12B class fine, and CAG means the expensive
-  prompt processing happens only once per document anyway.
-
-## Configuration
-
-Everything lives in `.env` (created by `setup`; see [.env.example](.env.example)
-for all knobs and comments). The defaults are sensible; the ones you might touch:
-
-| Variable | Default | |
-|----------|---------|---|
-| `LLAMA_MODEL` | `google/gemma-4-12B-it-qat-q4_0-gguf` | Model to download & serve |
-| `LLAMA_CTX_SIZE` | `65536` | Total context (split across slots) |
-| `CAG_SLOTS` | `1` | Documents kept hot in RAM simultaneously (residency only — generation stays serialized) |
-| `LLAMA_CACHE_TYPE_KV` | `q8_0` | KV cache precision (`f16` to disable quantization) |
-| `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
-| `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
-| `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
-| `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
-
 ## Updating & maintenance
 
 Honest answer: **almost none, and no code changes for new models.**
@@ -628,6 +651,9 @@ Honest answer: **almost none, and no code changes for new models.**
   downloading the model. `python llamacag.py logs llama-server` shows progress.
 - **Ingest returns 413 (document too large)** — the error includes the measured
   token count; raise `LLAMA_CTX_SIZE` in `.env` and restart, or split the file.
+- **Upload rejected with a 413 naming `MAX_UPLOAD_MB`** — the file is over the
+  50 MB upload cap. Raise `MAX_UPLOAD_MB` in `.env` if you really mean it, or
+  send a smaller file.
 - **Everything is slow / OOM on Windows** — Docker Desktop's WSL2 VM defaults to
   half your RAM. The default model + 64k context wants ~10 GB in the VM; give it
   that (Settings → Resources, or `.wslconfig`), or lower `LLAMA_CTX_SIZE`, or

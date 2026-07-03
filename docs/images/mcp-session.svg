@@ -1,0 +1,116 @@
+<svg viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace">
+  <defs>
+    <radialGradient id="msGlowAmber" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="msPanelClip"><rect x="24" y="20" width="1152" height="452" rx="14"/></clipPath>
+  </defs>
+
+  <!-- ===================== master loop clock (9s) ===================== -->
+  <!-- Zero-size driver; every reveal begins at loop.begin+Ns and resets at loop.begin. -->
+  <rect x="-10" y="-10" width="1" height="1" fill="none" opacity="0">
+    <animate id="loop" attributeName="opacity" from="0" to="0" dur="9s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- ===================== outer background ===================== -->
+  <rect x="0" y="0" width="1200" height="520" fill="#0F172A"/>
+  <ellipse cx="600" cy="150" rx="520" ry="220" fill="url(#msGlowAmber)"/>
+
+  <!-- ===================== terminal panel ===================== -->
+  <rect x="24" y="20" width="1152" height="452" rx="14" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+
+  <!-- title bar -->
+  <rect x="24" y="20" width="1152" height="40" rx="14" fill="#0F172A"/>
+  <rect x="24" y="46" width="1152" height="14" fill="#0F172A"/>
+  <line x1="24" y1="60" x2="1176" y2="60" stroke="#334155" stroke-width="1"/>
+  <circle cx="48" cy="40" r="6" fill="#F87171"/>
+  <circle cx="70" cy="40" r="6" fill="#F59E0B"/>
+  <circle cx="92" cy="40" r="6" fill="#34D399"/>
+  <text x="600" y="45" font-size="14" fill="#94A3B8" text-anchor="middle">claude — your project</text>
+
+  <!-- ===================== transcript body ===================== -->
+  <g clip-path="url(#msPanelClip)" font-size="16.5">
+
+    <!-- (1) prompt line, revealed by a wipe so it "types in" -->
+    <g>
+      <text x="52" y="98" fill="#64748B">&gt;</text>
+      <!-- full prompt text, base visible; a masking rect wipes L->R during replay -->
+      <text x="72" y="98" fill="#E2E8F0">refactor the telemetry module to comply with the vendor spec</text>
+      <!-- wipe cover: opaque panel-colored rect. BASE width=0 (final/revealed state so a
+           non-animating renderer shows the full line); the replay re-covers then shrinks.
+           Travel width 660 ≈ line length at a typical browser monospace advance. -->
+      <rect x="72" y="82" width="0" height="24" fill="#1E293B">
+        <set attributeName="width" to="660" begin="loop.begin" dur="0.01s"/>
+        <animate attributeName="width" from="660" to="0" begin="loop.begin+0.2s" dur="1.0s" fill="freeze" calcMode="spline" keySplines="0.3 0 0.2 1"/>
+      </rect>
+      <!-- caret that rides the wipe edge, then blinks parked at the line end.
+           BASE opacity=0 so it is invisible in a non-animating renderer (clean final frame);
+           the replay switches it on. -->
+      <rect x="72" y="83" width="9" height="20" fill="#22D3EE" opacity="0">
+        <set attributeName="opacity" to="1" begin="loop.begin" dur="0.01s"/>
+        <set attributeName="x" to="72" begin="loop.begin" dur="0.01s"/>
+        <animate attributeName="x" from="72" to="732" begin="loop.begin+0.2s" dur="1.0s" fill="freeze" calcMode="spline" keySplines="0.3 0 0.2 1"/>
+        <animate attributeName="opacity" values="1;0;1" dur="1s" begin="loop.begin+1.2s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+
+    <!-- (2) "I'll check the spec's exact requirements first." -->
+    <g>
+      <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+      <animate attributeName="opacity" from="0" to="1" begin="loop.begin+1.5s" dur="0.4s" fill="freeze"/>
+      <text x="52" y="140" fill="#22D3EE">&#9679;</text>
+      <text x="72" y="140" fill="#E2E8F0">I'll check the spec's exact requirements first.</text>
+    </g>
+
+    <!-- (3) amber tool-call block -->
+    <g>
+      <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+      <animate attributeName="opacity" from="0" to="1" begin="loop.begin+2.4s" dur="0.4s" fill="freeze"/>
+      <text x="52" y="184" fill="#F59E0B">&#9679;</text>
+      <text x="72" y="184" fill="#F59E0B" font-weight="700">cag - ask_document (MCP)</text>
+      <text x="92" y="210" fill="#94A3B8">question: <tspan fill="#E2E8F0">"What payload fields, types and units does the</tspan></text>
+      <text x="176" y="232" fill="#E2E8F0">vendor require for telemetry events?"</text>
+    </g>
+
+    <!-- (4) answer lines -->
+    <g>
+      <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+      <animate attributeName="opacity" from="0" to="1" begin="loop.begin+3.6s" dur="0.5s" fill="freeze"/>
+      <text x="72" y="262" fill="#64748B">&#8985;</text>
+      <text x="92" y="262" fill="#CBD5E1">Events require device_id (string), ts_utc (ISO-8601 with</text>
+      <text x="92" y="284" fill="#CBD5E1">milliseconds), seq (monotonic int) and readings[] using</text>
+      <text x="92" y="306" fill="#CBD5E1">unit-suffixed keys — temp_c, load_pct, volt_mv. Unknown</text>
+      <text x="92" y="328" fill="#CBD5E1">keys are rejected, not ignored (§4.2).</text>
+    </g>
+
+    <!-- (5) green receipt line, with a brief emphasis pulse -->
+    <g>
+      <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+      <animate attributeName="opacity" from="0" to="1" begin="loop.begin+5.2s" dur="0.4s" fill="freeze"/>
+      <rect x="88" y="346" width="880" height="26" rx="6" fill="#0E1F18" stroke="#2F6B52" stroke-width="1"/>
+      <text x="100" y="364" fill="#34D399">[doc 3 vendor-spec.pdf &#183; cache: memory &#183; evaluated 38 of 41,772 prompt tokens &#183; 590 ms]</text>
+      <!-- emphasis: quick scale-less glow via stroke opacity pulse -->
+      <rect x="88" y="346" width="880" height="26" rx="6" fill="none" stroke="#34D399" stroke-width="1.5">
+        <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+        <animate attributeName="opacity" values="0;1;0" begin="loop.begin+5.2s" dur="0.9s" fill="freeze"/>
+      </rect>
+    </g>
+
+    <!-- (6) closing line -->
+    <g>
+      <set attributeName="opacity" to="0" begin="loop.begin" dur="0.01s"/>
+      <animate attributeName="opacity" from="0" to="1" begin="loop.begin+6.3s" dur="0.45s" fill="freeze"/>
+      <text x="52" y="406" fill="#22D3EE">&#9679;</text>
+      <text x="72" y="406" fill="#E2E8F0">Unit-suffixed keys with strict rejection — updating telemetry.py&#8230;</text>
+      <!-- trailing working caret; BASE opacity=0 (invisible in a non-animating renderer). -->
+      <rect x="825" y="391" width="9" height="20" fill="#94A3B8" opacity="0">
+        <animate attributeName="opacity" values="0;1;0;1" begin="loop.begin+6.75s" dur="1.2s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+
+  </g>
+
+  <!-- ===================== footer label ===================== -->
+  <text x="600" y="500" font-size="13" fill="#475569" text-anchor="middle">simulated session &#183; llama-cag-n8n + cag-mcp</text>
+</svg>
