@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     default_max_answer_tokens: int = 1024
     default_temperature: float = 0.2
 
+    # Cost-savings estimate dial (GET /stats). A cloud provider's per-1k *input*-token
+    # price; savings ≈ tokens_reused/1000 × this. 0.0 (default) hides the money line.
+    cloud_price_per_1k_input: float = 0.0
+
     # Paraphrase tolerance for POST /verify's mechanical quote check: the minimum
     # difflib ratio at which a non-exact quote still counts as grounded. Higher =
     # stricter. Behavioral (not geometry), but plumbed through docker-compose.yml's

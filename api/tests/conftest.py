@@ -120,6 +120,27 @@ class FakeDatabase:
             "avg_duration_ms_24h": 0,
         }
 
+    def usage_stats(self):
+        # The fake logs no timestamp, so it collapses all three windows to the
+        # same totals over self.queries (window differentiation is a live-DB
+        # concern, out of scope for the fake). Same key shape as the real method.
+        reused = sum((q.get("n_cached_tokens") or 0) for q in self.queries)
+        evaluated = sum((q.get("n_eval_tokens") or 0) for q in self.queries)
+        failed = sum(1 for q in self.queries if not q.get("success"))
+        n = len(self.queries)
+        denom = reused + evaluated
+        window = {
+            "queries": n,
+            "failed": failed,
+            "tokens_reused": reused,
+            "tokens_evaluated": evaluated,
+            "avg_eval_tokens": round(evaluated / n, 4) if n else 0.0,
+            "reuse_ratio": round(reused / denom, 4) if denom else 0.0,
+            "p50_duration_ms": 0,
+            "p95_duration_ms": 0,
+        }
+        return {"24h": dict(window), "7d": dict(window), "all": dict(window)}
+
     @staticmethod
     def _public(doc, with_content=False):
         skip = () if with_content else ("content",)

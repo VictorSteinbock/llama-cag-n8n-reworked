@@ -705,3 +705,25 @@ def test_verify_unknown_document_raises(engine, fake_llama):
     engine.ingest_text("facts.txt", DOC)
     with pytest.raises(UnknownDocumentError):
         engine.verify_claim("x", document_id=999)
+
+
+# --- F5: engine usage_stats wrapper applies pricing ------------------------
+
+def test_engine_usage_stats_applies_price(fake_llama, fake_db, tmp_path):
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", cloud_price_per_1k_input=0.002,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    engine.ingest_text("facts.txt", DOC)
+    engine.query("q?")
+
+    stats = engine.usage_stats()
+
+    # Pricing lives in the engine wrapper, not the DB fake: it wraps
+    # Database.usage_stats() and multiplies all-time reused tokens by the price.
+    reused = stats["windows"]["all"]["tokens_reused"]
+    assert stats["savings"]["estimated_usd"] == round(reused / 1000 * 0.002, 4)
+    assert stats["savings"]["cloud_price_per_1k_input"] == 0.002

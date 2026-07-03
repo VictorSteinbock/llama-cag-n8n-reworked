@@ -53,6 +53,8 @@ services:
       - DEFAULT_MAX_ANSWER_TOKENS=${DEFAULT_MAX_ANSWER_TOKENS:-1024}
       # Paraphrase tolerance for POST /verify's quote grounding (higher = stricter).
       - QUOTE_MATCH_THRESHOLD=${QUOTE_MATCH_THRESHOLD:-0.9}
+      # Cloud per-1k input-token price for GET /stats' savings estimate (0.0 hides it).
+      - CLOUD_PRICE_PER_1K_INPUT=${CLOUD_PRICE_PER_1K_INPUT:-0.0}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
       - CACHE_DIR=/caches
       - DB_HOST=db

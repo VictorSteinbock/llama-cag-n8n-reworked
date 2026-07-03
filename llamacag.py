@@ -287,6 +287,22 @@ def cmd_status(_: argparse.Namespace) -> int:
                 pass
         print(f"{marker} {name:<13} HTTP {status} {url}{detail}")
 
+    # One-line usage summary from GET /stats. Guarded exactly like the health
+    # checks: stats are a nicety, so a hiccup never fails `status`.
+    api_base = f"http://localhost:{port(env, 'CAG_API_PORT', '8000')}"
+    try:
+        s_status, s_body = http_get(f"{api_base}/stats")
+        if s_status == 200:
+            stats = json.loads(s_body)
+            day = stats["windows"]["24h"]
+            allw = stats["windows"]["all"]
+            usd = stats["savings"]["estimated_usd"]
+            money = f", ~${usd} saved" if usd else ""
+            print(f"     usage: {day['queries']} queries/24h, "
+                  f"{allw['tokens_reused']:,} tokens reused all-time{money}")
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass  # stats are a nicety; never fail `status` over them
+
     print_resource_snapshot()
     return 0
 

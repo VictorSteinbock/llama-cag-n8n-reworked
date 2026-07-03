@@ -129,6 +129,7 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
                 "POST /query {question, document_id?, max_tokens?, temperature?, history?, "
                 "json_schema?}",
                 "POST /verify {claim, document_id?, max_tokens?}",
+                "GET /stats",
                 "POST /maintenance",
             ],
         }
@@ -188,6 +189,10 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
         return _engine(request).verify_claim(
             body.claim, document_id=body.document_id, max_tokens=body.max_tokens
         )
+
+    @app.get("/stats")
+    def stats(request: Request):
+        return _engine(request).usage_stats()
 
     @app.post("/maintenance")
     def maintenance(request: Request):

@@ -262,3 +262,48 @@ def test_verify_doc_deleted_mid_flight_is_404(client, fake_llama, fake_db):
 
     response = client.post("/verify", json={"claim": "x"})
     assert response.status_code == 404  # the doc-is-None guard, never a 500
+
+
+# --- F5: GET /stats ---------------------------------------------------------
+
+def test_index_lists_stats_endpoint(client):
+    assert any("GET /stats" in e for e in client.get("/").json()["endpoints"])
+
+
+def test_stats_endpoint_returns_windows_and_savings(client):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    client.post("/query", json={"question": "q1?"})
+    client.post("/query", json={"question": "q2?"})
+
+    body = client.get("/stats").json()
+
+    assert body["windows"]["all"]["queries"] == 2
+    assert body["windows"]["all"]["tokens_reused"] == 2 * 480  # fake chat cache_n
+    assert body["savings"]["is_estimate"] is True
+
+
+def test_stats_hides_money_line_when_price_zero(client):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    client.post("/query", json={"question": "q?"})
+
+    savings = client.get("/stats").json()["savings"]
+
+    assert savings["estimated_usd"] is None
+    assert savings["cloud_price_per_1k_input"] == 0.0
+
+
+def test_stats_shows_savings_when_price_set(fake_llama, fake_db, tmp_path):
+    from app.cag import CagEngine
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", cloud_price_per_1k_input=0.003,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    with TestClient(create_app(engine=engine)) as priced_client:
+        priced_client.post("/documents/text", json={"text": "Fredville is the capital."})
+        priced_client.post("/query", json={"question": "q?"})
+        savings = priced_client.get("/stats").json()["savings"]
+
+    assert savings["estimated_usd"] == round(480 / 1000 * 0.003, 4)

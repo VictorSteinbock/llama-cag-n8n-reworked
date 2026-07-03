@@ -654,6 +654,29 @@ class CagEngine:
             **self._db.stats(),
         }
 
+    def usage_stats(self) -> dict:
+        """GET /stats: usage aggregates + a cost-savings estimate. Pure read of
+        query_log; touches neither lock, so it answers even mid-generation and
+        when inference is down. Pricing policy lives here (with Settings), not in
+        the DB layer, mirroring how list_documents/maintenance delegate."""
+        windows = self._db.usage_stats()
+        price = self._settings.cloud_price_per_1k_input
+        reused_all = windows["all"].get("tokens_reused") or 0
+        estimated = round(reused_all / 1000 * price, 4) if price > 0 else None
+        return {
+            "windows": windows,
+            "savings": {
+                "cloud_price_per_1k_input": price,
+                "tokens_reused_all_time": reused_all,
+                "estimated_usd": estimated,
+                "is_estimate": True,
+                "note": (
+                    "Estimate: tokens_reused / 1000 * cloud_price_per_1k_input. "
+                    "Set CLOUD_PRICE_PER_1K_INPUT to your provider's input price to enable."
+                ),
+            },
+        }
+
     def health(self) -> dict:
         # Snapshot the slot map under the micro-guard, NOT the big lock: a
         # long generation can hold _lock for minutes, and health must answer

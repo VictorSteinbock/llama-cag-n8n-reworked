@@ -21,7 +21,7 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 | F2 | Answer-gating pattern + fail-safe gate | Composition | S | Ready·dep (F1) |
 | F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Shipped (branch) |
 | F4 | Per-canon reliability battery (calibration) | New capability | M | Ready |
-| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Ready |
+| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Shipped (branch) |
 | F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Ready (docs shipped) |
 | F7 | Cross-document queries (concat / diff / federate) | Rework | L | Design-first |
 | F8 | Multi-user / RBAC | Product fork | XL | Design-first |
