@@ -54,7 +54,9 @@ length while `cache_source` reports where the state came from:
 
 The very first query on a document (or the first after `cache_source: "disk"`
 following a restart) evaluates the full prefix once; from then on it's tens of
-tokens. **Numbers, not adjectives — that's the whole point.**
+tokens. **Numbers, not adjectives — that's the whole point.** (The JSON above
+is an illustrative response — the *shape* is guaranteed by the mechanism, and
+your own first query prints the real receipt.)
 
 ## Where this shines
 
@@ -71,12 +73,14 @@ grounded in the actual text. After the one-time warm it's precise and fast, cost
 nothing per question, and never sends a word off the machine.
 
 **A token-saver sidecar for cloud coding agents (via MCP).** Give Claude Code a
-28k-token spec to work against and, without this, that spec rides along in the
-context of *every* task — 28k tokens in, paid for, on every single turn. Point
-the agent at the local `ask_document` MCP tool instead and only the question and
-the answer cross the boundary: ~40 tokens out, an answer back, versus 28,000
-re-sent each time. The spec stays pinned in a local KV cache the cloud model
-never has to re-read or be billed for.
+28k-token spec to work against and it occupies a seventh of a 200k context
+window all session — crowding out real work — and while provider-side prompt
+caching discounts warm re-sends, those caches are short-lived and still
+metered: every fresh session, every post-compaction re-read, pays for the full
+spec again. Point the agent at the local `ask_document` MCP tool instead and
+only questions (~tens of tokens) and answers cross the boundary. The spec stays
+pinned in a local KV cache — never occupying the agent's context, never
+expiring, never billed, never leaving your machine.
 
 **The team reference desk.** Contracts, runbooks, compliance manuals, an SOP
 binder — documents a team asks the same questions against for weeks, and that
@@ -324,8 +328,10 @@ a tool instead of carrying it:
 ```
 
 The 41,772-token spec was evaluated **once**, weeks ago, on your hardware. This
-turn cost the cloud model ~40 tokens of question and ~100 of answer — repeat ×
-every task in every session, and that's the economics. The same shape works as
+turn cost the cloud model ~40 tokens of question and ~100 of answer (plus a few
+hundred tokens of tool definitions, once per session — honesty in accounting).
+The spec itself never occupies the agent's context: not this session, not after
+compaction, not next month. The same shape works as
 a **second brain**: pin your notes, your research corpus digest, or a project's
 design doc, and any MCP-capable agent — coding or otherwise — gets a private,
 grounded, queryable memory that never inflates its context and never leaves
