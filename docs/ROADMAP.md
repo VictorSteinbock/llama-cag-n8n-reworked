@@ -25,6 +25,8 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 | F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Ready (docs shipped) |
 | F7 | Cross-document queries (concat / diff / federate) | Rework | L | Design-first |
 | F8 | Multi-user / RBAC | Product fork | XL | Design-first |
+| F9 | Zero-install web UI (served at `/ui`) | New capability | M | Ready |
+| F10 | Sample documents + guided first-run | Tooling | S | Ready |
 
 ---
 
@@ -312,6 +314,124 @@ converter + image PDF → clear guided error (monkeypatch the converter call).
 with a configurable converter and an honest fallback message.
 
 ---
+
+## User experience & accessibility
+
+A design review of the "make it feel like an app" question found that the gap is
+**not** "no friendly face exists" — the desktop control room
+([LlamaCag UI](https://github.com/VictorSteinbock/LlamaCagUI): drag-drop upload,
+chat with cache-source badges, document library, stack health/control, model
+switching, dark theme, toasts, welcome onboarding) already covers most of it.
+The two real gaps are: it requires *installing a second app*, and the sharpest
+feature (the oracle) has *no GUI at all*. F9 and F10 close both.
+
+### F9 — Zero-install web UI (served at `/ui`)
+
+**What & why.** The lowest-friction face for a non-technical user: run
+`python llamacag.py start`, open a URL, and drag in a document, chat, and verify
+claims — with nothing to install. It complements the other faces rather than
+replacing them: LlamaCag UI is the native power-user control room, n8n is
+automation, and this is the casual daily-driver front door. It's also where the
+**oracle finally gets a GUI** (paste claims → verdict table) and where
+**residency becomes visible** (which documents are Hot / on Disk / Cold).
+
+**Why served by cag-api, not a separate container.** Mounting a static
+single-page app inside the existing API is the lightest feasible option: **no
+new service, no new runtime dependency** (Starlette's `StaticFiles` ships with
+FastAPI; `python-multipart` is already installed for uploads), and — because the
+page is served from the same origin it calls — **no CORS to configure.** One
+`start`, one URL.
+
+**Security boundary (state it plainly).** The stack is unauthenticated by design;
+loopback is the security boundary. The web UI is therefore for the **local host**
+by default. Reaching it from a phone or another machine means binding the port
+beyond `127.0.0.1`, which exposes an *unauthenticated* API on your network —
+only do that behind a reverse proxy with auth, or on a trusted LAN you control.
+General multi-user access is the F8 fork, not this.
+
+**Affected components.** New `api/app/webui/` (a self-contained `index.html` +
+inline CSS/JS, matching the established dark amber-on-slate palette); a one-line
+mount in `api/app/main.py`. **No change to any existing endpoint** — the SPA is
+pure client of `/documents`, `/query`, `/health`, `/maintenance`. Optional
+`WEBUI_ENABLED` flag (config + the three-places rule) if you want it opt-out.
+
+**Implementation steps.**
+1. `api/app/webui/index.html`: a no-build single-page app (vanilla JS is enough;
+   keep it dependency-free and self-contained like the SVGs). Tabs: **Chat**,
+   **Library**, **Verify**, **Stats**.
+2. Mount it: `app.mount("/ui", StaticFiles(directory=<webui dir>, html=True))`.
+   Same-origin as the API ⇒ no CORS.
+3. **Chat**: document picker (`GET /documents`, cached only), input box, send →
+   `POST /query`; render the answer with the `cache_source` badge and the token
+   receipt. Keep `history` client-side for multi-turn.
+4. **Library**: `GET /documents` table; file input **and** drag-drop →
+   `POST /documents` (multipart) with an "uploading… warming…" indicator that
+   polls `GET /documents` until status flips to `cached`; delete → `DELETE`.
+   Show **Hot / Disk / Cold** by cross-referencing `GET /health` `hot_documents`
+   (slot → doc id) against the list.
+5. **Verify**: a textarea (one claim per line) → per claim `POST /query` with the
+   verdict `json_schema` at `temperature 0` (or `POST /verify` once **F1** lands,
+   which also gives you the `quote_grounded` column) → a verdict table with
+   colored chips. This is the oracle's first GUI.
+6. **Stats**: `GET /health` (status, slots, hot docs) now; the cumulative
+   "compute saved" line lights up once **F5** ships `GET /stats`.
+7. README quick start: add "open http://localhost:8000/ui"; a screenshot.
+
+**Alternative if you'd rather write Python than JS.** A Gradio (or Streamlit) app
+in a `webui/` container reaches parity faster but costs a new service, a new
+dependency, extra RAM, and cross-origin calls to the API. Prefer the static SPA
+for footprint and cohesion; reach for Gradio only if hand-writing the frontend
+is the blocker.
+
+**Tests.** Add an API smoke test that `GET /ui/` returns `200 text/html`. The
+underlying endpoints are already covered; a Playwright click-through is optional
+and can come later.
+
+**Done when.** `start` → `http://localhost:8000/ui` → drag a document, watch it
+warm, chat, and verify a claim list — all in a browser, no install.
+
+### F10 — Sample documents + guided first-run
+
+**What & why.** Kill the empty-state cliff. A first-time user with nothing
+ingested should reach a real answer in under a minute. Ship a couple of curated
+sample documents and a one-click "try a sample" path so the "aha — it remembers"
+moment happens before any of their own files are involved.
+
+**Affected components.** A new `samples/` folder (1–2 short `.md` files — e.g. a
+fake product manual and a one-page policy, chosen to show off extraction,
+grounding, and the oracle); a "Try a sample" affordance in F9's web UI (and,
+optionally, LlamaCag UI's empty state); one line in the README quick start.
+
+**Implementation steps.**
+1. `samples/acme-widget-manual.md`, `samples/refund-policy.md` — small, dense,
+   self-contained, with a few checkable facts (numbers, conditions) so the
+   Verify tab has something to catch.
+2. Web UI empty state: a "Try a sample" button that `POST`s the sample text via
+   `/documents/text` and drops the user into Chat with a suggested question.
+3. README: mention the samples in the "Use it" block.
+
+**Tests.** Trivial: the sample files parse as valid Markdown; the ingest of a
+sample returns `cached` (covered by existing ingest tests with a fixture).
+
+**Done when.** A fresh stack → one click → a sample is cached and answerable,
+including a Verify example that shows a `contradicted` catch.
+
+### What we're deliberately not building
+
+- **A Tauri/Electron rewrite.** The native-desktop-app box is already checked by
+  LlamaCag UI (PySide6, 69 tests). Rebuilding it in web tech trades a working,
+  tested app for a smaller bundle — a lateral move, not a win.
+- **Cloud sync / accounts / monetization.** These contradict the local-first,
+  "never leaves your machine" contract that is the whole point. If teams ever
+  become the goal, that is the F8 fork — a deliberate decision with its own
+  roadmap, not a feature bolted on here.
+- **PDF first-page thumbnails.** Real rendering cost for little value in a
+  text-first tool; the document list already shows what matters (name, tokens,
+  status, residency).
+- **In-answer source highlighting.** The model doesn't return character offsets,
+  so "highlight the exact sentence" isn't reliably implementable. The oracle's
+  quote field (hardened by **F1**) is the honest, buildable version of "show me
+  where this came from."
 
 ## Tier 3 — reworks that need a decision first
 
