@@ -1,0 +1,269 @@
+{
+  "name": "CAG Answer Gate",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CAG Answer Gate\n\nGate a support bot's draft answer against the pinned canon before it ships. This asks the oracle the *original question* fresh (grounded, `temperature 0`) for a reference answer, then has `/verify` confirm the draft is fully supported — and auto-passes **only** on `verdict: supported` with a grounded quote. Everything else routes to human review.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/answer-gate \\\n  -H \"Content-Type: application/json\" \\\n  -d '{ \"document_id\": 7,\n        \"question\": \"Does the warranty cover water damage?\",\n        \"draft\": \"Yes — the warranty fully covers water damage.\" }'\n# → {\"pass\": false, \"verdict\": \"contradicted\", ...}\n```\n\nThe fail-safe rule: auto-pass ONLY on supported + grounded quote; a non-supported verdict, a fabricated quote (`quote_grounded: false`), or any API error all yield `pass: false`. Pass `document_id` explicitly so both hops target the same document.\n\nNo credentials needed — cag-api does all the work.",
+        "height": 560,
+        "width": 460
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000001",
+      "name": "How to use",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-320, -220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cag/answer-gate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000002",
+      "name": "Answer Gate Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "webhookId": "d5e6f7a8-9b0c-4d1e-8f2a-3b4c5d6e7f80"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://cag-api:8000/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: $json.body.question, temperature: 0, document_id: $json.body.document_id }) }}",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000003",
+      "name": "Grounded Reference Answer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://cag-api:8000/verify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ claim: 'This answer is fully supported by the document: ' + $('Answer Gate Webhook').item.json.body.draft, document_id: $('Answer Gate Webhook').item.json.body.document_id }) }}",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000004",
+      "name": "Verify Draft Support",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "gate-1",
+              "name": "pass",
+              "value": "={{ $json.verdict === 'supported' && $json.quote_grounded === true }}",
+              "type": "boolean"
+            },
+            {
+              "id": "gate-2",
+              "name": "verdict",
+              "value": "={{ $json.verdict }}",
+              "type": "string"
+            },
+            {
+              "id": "gate-3",
+              "name": "quote",
+              "value": "={{ $json.quote }}",
+              "type": "string"
+            },
+            {
+              "id": "gate-4",
+              "name": "conditions",
+              "value": "={{ $json.conditions }}",
+              "type": "string"
+            },
+            {
+              "id": "gate-5",
+              "name": "grounded_answer",
+              "value": "={{ $('Grounded Reference Answer').item.json.answer }}",
+              "type": "string"
+            },
+            {
+              "id": "gate-6",
+              "name": "reason",
+              "value": "={{ $json.verdict === 'supported' && $json.quote_grounded === true ? 'Draft is grounded-supported by the document.' : 'Escalated: verdict=' + $json.verdict + ', quote_grounded=' + $json.quote_grounded + '. Only supported+grounded auto-passes.' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000005",
+      "name": "Apply Gate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [980, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000006",
+      "name": "Respond With Gate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1240, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fail-1",
+              "name": "pass",
+              "value": "={{ false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "fail-2",
+              "name": "verdict",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-3",
+              "name": "quote",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-4",
+              "name": "conditions",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-5",
+              "name": "grounded_answer",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-6",
+              "name": "reason",
+              "value": "={{ $json.error?.message ?? $json.error ?? 'CAG API request failed' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000007",
+      "name": "Mark Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [980, 120]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "d5e6f7a8-0000-4000-8000-000000000008",
+      "name": "Respond With Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1240, 120]
+    }
+  ],
+  "connections": {
+    "Answer Gate Webhook": {
+      "main": [
+        [
+          {
+            "node": "Grounded Reference Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grounded Reference Answer": {
+      "main": [
+        [
+          {
+            "node": "Verify Draft Support",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Draft Support": {
+      "main": [
+        [
+          {
+            "node": "Apply Gate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Gate": {
+      "main": [
+        [
+          {
+            "node": "Respond With Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failure": {
+      "main": [
+        [
+          {
+            "node": "Respond With Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}

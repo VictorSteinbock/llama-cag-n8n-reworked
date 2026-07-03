@@ -165,6 +165,30 @@ operating point (a smaller canon, a bigger model) *before* you rely on it, and
 this measures **this canon under this model** — not the model in general. The
 bundled `calibration` workflow wraps the same call for non-technical operators.
 
+### Gating a support bot's answers
+
+For a support bot the question already exists, so the right architecture is
+**answer-compare**, not decompose-and-verify. Splitting a draft into atomic
+claims and checking each verifies isolated facts but can pass a draft whose facts
+are individually true yet whose *conclusion* is wrong. Answer-compare skips the
+decomposition entirely: regenerate the grounded answer fresh (`temperature 0`),
+then have `/verify` confirm the draft against the source — one grounded
+generation, checking the thing that actually ships. The **fail-safe rule** holds:
+auto-pass **only** on `supported` with a grounded quote; a non-supported verdict,
+a fabricated quote, or any API error all route to human review.
+
+```bash
+curl -X POST http://localhost:5678/webhook/cag/answer-gate \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": 7,
+       "question": "Does the warranty cover water damage?",
+       "draft": "Yes — the warranty fully covers water damage."}'
+# → {"pass": false, "verdict": "contradicted", "reason": "Escalated: ...", ...}
+```
+
+The bundled `answer-gate` workflow implements exactly this — one webhook, no
+credentials, fail-closed on any error.
+
 ### It composes with LLM wikis and second brains
 
 Karpathy's **LLM Wiki** pattern (April 2026) argues that knowledge should
@@ -193,7 +217,7 @@ something it must consult, and can be caught deviating from.
   <img src="docs/images/verify-workflow.svg" alt="The bundled claim-verification workflow as a node graph: webhook → split claims → HTTP verify → collect verdict / mark failure → aggregate → respond." width="100%">
 </p>
 
-The bundled verification workflow, as imported into n8n — five of these ship in `n8n/workflows/`.
+The bundled verification workflow, as imported into n8n — seven of these ship in `n8n/workflows/`.
 
 ## Quick start
 
@@ -216,8 +240,10 @@ with `python llamacag.py logs llama-server`, and confirm readiness with
 **Set up n8n (one-time, ~2 minutes):**
 
 1. Open http://localhost:5678 and create the local owner account.
-2. Import the five workflows from [`n8n/workflows/`](n8n/workflows/)
-   (*Workflows → ⋯ → Import from file*).
+2. Import the seven workflows from [`n8n/workflows/`](n8n/workflows/)
+   (*Workflows → ⋯ → Import from file*). Upgrading an existing deployment? Re-import
+   `claim-verification-workflow.json` (now backed by `/verify`) and import the new
+   `answer-gate-workflow.json`.
 3. Activate each one. **No credentials to configure** — the workflows only call
    `cag-api` over the internal Docker network.
 
@@ -773,7 +799,7 @@ Honest answer: **almost none, and no code changes for new models.**
 │   └── tests/              #   tool tests over a MockTransport fake of cag-api
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
 ├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
-├── n8n/workflows/          # 5 importable workflows: ingestion, query, maintenance, sweep, verify
+├── n8n/workflows/          # 7 importable workflows: ingestion, query, maintenance, sweep, verify, calibrate, answer-gate
 ├── docker-compose.yml      # llama-server + cag-api + n8n + postgres
 ├── docker-compose.gpu.yml  # NVIDIA (CUDA) override
 ├── docker-compose.vulkan.yml # Intel/AMD GPU override (Linux hosts)
