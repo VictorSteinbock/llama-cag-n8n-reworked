@@ -418,15 +418,37 @@ text layer, extracts cleanly. What does *not* survive plain extraction:
 
 The stack trusts its extracted text as ground truth, so **garbage extraction
 means confidently wrong grounding** — the one failure no downstream safeguard
-can catch. The fix is to prepare rich documents *before* ingesting: convert them
-to clean Markdown with a vision-capable model or a document-to-Markdown tool (a
-chart becomes a described paragraph, a table becomes a Markdown table), eyeball
-the result, then drop the `.md` into the watch folder. This is a deliberate
-boundary — **cag-api ingests text; turning a visual PDF into faithful text is a
-separate preprocessing step**, kept out of the request path (which stays
-shell-free by design). An optional bundled converter is on the
-[roadmap](docs/ROADMAP.md); until then any PDF→Markdown tool works, because the
-ingestion layer only cares that what arrives is faithful text.
+can catch. The fix is to prepare rich documents *before* ingesting, with the
+bundled CLI:
+
+```bash
+python llamacag.py prepare path/to/report.pdf
+# text-layer PDF → extracted offline, no converter, nothing leaves your machine
+# scanned/chart PDF → uses your configured PREPARE_CMD (see below)
+# → writes ./prepared/report.md — review it, then move it into ./documents to ingest
+```
+
+A PDF with a real text layer is extracted **offline** with no converter. Only
+scanned / image / chart-heavy PDFs need a converter, set once in `.env` as
+`PREPARE_CMD` (a template where `{in}`/`{out}` are substituted as whole
+arguments — no shell). Pick by your privacy needs:
+
+- **Local, private** — `marker` (`pip install marker-pdf`), `docling`, or a local
+  vision model. The document never leaves your machine.
+- **Cloud vision model** — faster and often higher quality, **but the document is
+  sent to a third party**; don't use it for confidential material.
+
+Prepared files land in `./prepared` (a **staging** folder, not the watch folder)
+so you **eyeball the `.md` before trusting the grounding**, then move it into
+`./documents` to ingest. Re-running `prepare` on a revised conversion ingests as
+a **new** document (dedupe is by content hash, not file name) — the old row and
+its KV cache linger and untargeted queries jump to the newest, so delete the
+superseded id and pass `document_id` explicitly while iterating.
+
+This is a deliberate boundary — **cag-api ingests text; turning a visual PDF into
+faithful text is a separate preprocessing step**, kept out of the request path
+(which stays shell-free by design; the converter runs only in this CLI, as a list
+argv, never a shell string).
 
 ## Choosing a model (state of play, mid-2026)
 
