@@ -46,6 +46,11 @@ services:
       - LLAMA_SERVER_URL=${LLAMA_SERVER_URL:-http://llama-server:8080}
       - LLAMA_CTX_SIZE=${LLAMA_CTX_SIZE:-65536}
       - CAG_SLOTS=${CAG_SLOTS:-1}
+      # Stack-wide answer defaults (per-request values still win). Chatbot
+      # deployments typically pin DEFAULT_TEMPERATURE=0.0 for deterministic,
+      # extractive answers — see "Running it as a dedicated chatbot" in README.
+      - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.2}
+      - DEFAULT_MAX_ANSWER_TOKENS=${DEFAULT_MAX_ANSWER_TOKENS:-1024}
       - CACHE_DIR=/caches
       - DB_HOST=db
       - DB_PORT=5432

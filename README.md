@@ -298,14 +298,65 @@ claude mcp add cag -- python -m cag_mcp
 }
 ```
 
-Then a turn looks like this — the 28k-token manual never enters the agent's
-context:
+<p align="center">
+  <img src="docs/images/claude-code-mcp.svg" alt="Claude Code calls the local ask_document tool; only questions and answers travel, the spec stays pinned locally." width="100%">
+</p>
 
+**What a real coding session looks like.** You ingested the vendor spec once
+(dropped it in the watch folder); now, mid-refactor, Claude Code consults it as
+a tool instead of carrying it:
+
+```text
+> refactor the telemetry module to comply with the vendor spec
+
+⏺ I'll check the spec's exact requirements before touching the code.
+
+⏺ cag - ask_document (MCP)
+  question: "What payload fields, types and units does the vendor require
+             for telemetry events, and what timestamp format?"
+  ⎿ Events require device_id (string), ts_utc (ISO-8601 with milliseconds),
+    seq (monotonic int) and readings[] using unit-suffixed keys — temp_c,
+    load_pct, volt_mv. Unknown keys are rejected, not ignored (§4.2).
+    [doc 3 vendor-spec.pdf · cache: memory · evaluated 38 of 41,772 prompt tokens · 590 ms]
+
+⏺ Unit-suffixed keys with strict rejection — renaming the fields in
+  telemetry.py and adding a schema guard…
 ```
-You:  What does section 4 of the controller manual say the peak current limit is?
-Claude (tool call → ask_document): "Section 4 caps peak load at 12 A for 10 s…"
-       [doc 7 manual.pdf · cache: memory · evaluated 43 of 28,443 prompt tokens · 640 ms]
-```
+
+The 41,772-token spec was evaluated **once**, weeks ago, on your hardware. This
+turn cost the cloud model ~40 tokens of question and ~100 of answer — repeat ×
+every task in every session, and that's the economics. The same shape works as
+a **second brain**: pin your notes, your research corpus digest, or a project's
+design doc, and any MCP-capable agent — coding or otherwise — gets a private,
+grounded, queryable memory that never inflates its context and never leaves
+your machine.
+
+## Running it as a dedicated chatbot
+
+The original motivation for this project — a narrow-domain support bot — is a
+configuration, not a fork. Two things matter:
+
+**Retrieval is not a dial here.** The model *always* has the entire document in
+context — there is no top-k retrieval step that can miss. What `temperature`
+controls is only the **wording** of the generated answer:
+
+- **Razor-sharp extractive mode** (support/compliance bots): send
+  `"temperature": 0` per request — or set it stack-wide with
+  `DEFAULT_TEMPERATURE=0.0` in `.env` — for deterministic, quote-like answers.
+  Same question → same answer, every time.
+- **Hybrid mode** (assistant-style): the default (`0.2`) keeps answers grounded
+  but lets the model synthesize and phrase naturally across the whole document —
+  full context *plus* room to compose. Raise toward `0.7` only if you want
+  looser prose; grounding still comes from the system rule.
+
+**The guardrail is the system prompt**, not luck: every query is wrapped in
+*"answer using only the information in the document; if it's not there, say so
+plainly"* (the `SYSTEM_TEMPLATE` constant in `api/app/cag.py` — edit it there
+if your bot needs a persona or a refusal style, then rebuild; existing caches
+re-warm themselves on next use). Wire your bot's frontend to the n8n webhook
+(`POST /webhook/cag/query`, with `history` for multi-turn), cap
+`DEFAULT_MAX_ANSWER_TOKENS` if you want terse replies, and that's the whole
+deployment.
 
 ## Choosing a model (state of play, mid-2026)
 
@@ -334,6 +385,12 @@ Two knobs matter alongside the model:
 (recompute + re-save) on their next query.
 
 ### GPU & native acceleration
+
+To be clear about intent: **CPU is the universal floor, not the design point.**
+The stack runs anywhere Docker does, but the fast path — and the original
+design target — is accelerated inference: Metal on Apple Silicon (unified
+memory is ideal for CAG, since model *and* KV caches share one big pool), CUDA
+on NVIDIA, Vulkan on Intel/AMD. Pick your lane:
 
 - **Apple Silicon (Metal):** Docker Desktop on macOS has **no GPU passthrough**,
   so run llama-server natively (`brew install llama.cpp`) and keep the rest of
@@ -364,6 +421,28 @@ for all knobs and comments). The defaults are sensible; the ones you might touch
 | `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
 | `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
 | `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
+
+## Updating & maintenance
+
+Honest answer: **almost none, and no code changes for new models.**
+
+- **New model comes out?** Edit one line in `.env` (`LLAMA_MODEL=<hf-repo:quant>`)
+  and restart. The model tables in this README / [docs/HARDWARE.md](docs/HARDWARE.md)
+  are *suggestions*, not dependencies — they go stale cosmetically, never
+  functionally. The only exception: a brand-new model *architecture* needs
+  llama.cpp support first, which you get with `docker compose pull` (fresh
+  llama-server image), still zero code changes here.
+- **Updating the stack itself:** `git pull`, then
+  `docker compose pull && python llamacag.py start` (compose rebuilds cag-api).
+  CI on every commit is the regression gate.
+- **What's automated already:** the nightly maintenance workflow reconciles
+  disk and database; caches invalidated by a model switch heal themselves on
+  next query. Postgres stays pinned to a major version; n8n updates when you
+  pull and migrates its own database.
+- **The one watch-item:** llama-server's slot save/restore API is marked
+  experimental upstream. If it ever changes, only `api/app/llama.py` follows —
+  and even mid-breakage, queries stay correct via the self-heal path (they just
+  get slower until fixed).
 
 ## Troubleshooting
 

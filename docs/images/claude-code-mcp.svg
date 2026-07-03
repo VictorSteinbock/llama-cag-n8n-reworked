@@ -1,0 +1,65 @@
+<svg viewBox="0 0 1200 440" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <rect x="0" y="0" width="1200" height="440" fill="#0F172A"/>
+  <radialGradient id="glowAmber" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.13"/>
+    <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="glowCyan" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.10"/>
+    <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+  </radialGradient>
+  <ellipse cx="920" cy="250" rx="300" ry="160" fill="url(#glowAmber)"/>
+  <ellipse cx="230" cy="250" rx="260" ry="150" fill="url(#glowCyan)"/>
+
+  <text x="48" y="52" fill="#E2E8F0" font-size="28" font-weight="700">Claude Code + local document memory (MCP)</text>
+  <text x="48" y="80" fill="#94A3B8" font-size="16">The dense document stays pinned on your machine — only questions and answers travel.</text>
+
+  <!-- Cloud agent panel -->
+  <rect x="48" y="118" width="360" height="264" rx="14" fill="#1E293B" stroke="#334155"/>
+  <text x="76" y="156" fill="#E2E8F0" font-size="19" font-weight="700">Claude Code</text>
+  <text x="76" y="178" fill="#94A3B8" font-size="14">cloud model · your coding session</text>
+  <rect x="76" y="196" width="304" height="54" rx="10" fill="#253349"/>
+  <text x="92" y="219" fill="#E2E8F0" font-size="14">&gt; refactor telemetry to match</text>
+  <text x="92" y="238" fill="#E2E8F0" font-size="14">&#160;&#160;the vendor spec</text>
+  <rect x="76" y="262" width="304" height="42" rx="10" fill="#253349"/>
+  <text x="92" y="288" fill="#94A3B8" font-size="14">context stays small and cheap</text>
+  <rect x="76" y="316" width="220" height="34" rx="17" fill="#0F172A" stroke="#34D399"/>
+  <circle cx="98" cy="333" r="5" fill="#34D399"/>
+  <text x="112" y="338" fill="#34D399" font-size="14">spec never enters context</text>
+
+  <!-- Local machine panel -->
+  <rect x="700" y="118" width="452" height="264" rx="14" fill="#1E293B" stroke="#334155"/>
+  <text x="728" y="156" fill="#E2E8F0" font-size="19" font-weight="700">Your machine</text>
+  <text x="728" y="178" fill="#94A3B8" font-size="14">100% local · offline after model download</text>
+  <rect x="728" y="196" width="180" height="64" rx="10" fill="#0F172A" stroke="#22D3EE"/>
+  <text x="748" y="222" fill="#22D3EE" font-size="15" font-weight="700">MCP tool</text>
+  <text x="748" y="243" fill="#94A3B8" font-size="13">ask_document(...)</text>
+  <rect x="944" y="196" width="180" height="64" rx="10" fill="#0F172A" stroke="#F59E0B"/>
+  <text x="964" y="220" fill="#F59E0B" font-size="15" font-weight="700">local model</text>
+  <text x="964" y="240" fill="#94A3B8" font-size="13">holds the whole spec</text>
+  <path d="M 908 228 L 936 228" stroke="#94A3B8" stroke-width="2" marker-end="url(#arr)"/>
+  <rect x="728" y="284" width="396" height="66" rx="10" fill="#253349"/>
+  <text x="748" y="309" fill="#F59E0B" font-size="14" font-weight="700">vendor-spec.pdf · 41,772 tokens</text>
+  <text x="748" y="331" fill="#94A3B8" font-size="13">read once, KV state saved to disk — survives reboots</text>
+
+  <!-- Arrows between panels -->
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#94A3B8"/>
+    </marker>
+    <marker id="arrGreen" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#34D399"/>
+    </marker>
+  </defs>
+  <path d="M 420 210 L 688 210" stroke="#94A3B8" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="554" y="198" fill="#E2E8F0" font-size="14" text-anchor="middle">question · ~40 tokens</text>
+  <path d="M 688 290 L 420 290" stroke="#34D399" stroke-width="2.5" marker-end="url(#arrGreen)"/>
+  <text x="554" y="316" fill="#34D399" font-size="14" text-anchor="middle">answer · ~100 tokens</text>
+
+  <!-- The crossed-out alternative -->
+  <g opacity="0.85">
+    <rect x="330" y="396" width="540" height="30" rx="15" fill="#1E293B" stroke="#F87171"/>
+    <text x="600" y="416" fill="#F87171" font-size="14" text-anchor="middle">without this: 41,772 spec tokens re-sent — and billed — on every task</text>
+    <line x1="342" y1="411" x2="330" y2="411" stroke="#F87171" stroke-width="2"/>
+  </g>
+</svg>
