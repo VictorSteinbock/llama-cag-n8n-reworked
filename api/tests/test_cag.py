@@ -727,3 +727,82 @@ def test_engine_usage_stats_applies_price(fake_llama, fake_db, tmp_path):
     reused = stats["windows"]["all"]["tokens_reused"]
     assert stats["savings"]["estimated_usd"] == round(reused / 1000 * 0.002, 4)
     assert stats["savings"]["cloud_price_per_1k_input"] == 0.002
+
+
+# --- F4: calibrate ---------------------------------------------------------
+
+def test_calibrate_scores_and_lists_misses(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"q1": "Fredville", "q2": "wrong", "q3": "42"}
+
+    result = engine.calibrate(1, [
+        {"question": "q1", "expected": "Fredville"},
+        {"question": "q2", "expected": "Metropolis"},
+        {"question": "q3", "expected": "42"},
+    ])
+
+    assert result["n"] == 3
+    assert result["correct"] == 2
+    assert result["accuracy"] == round(2 / 3, 4)
+    assert result["misses"] == [{"question": "q2", "expected": "Metropolis", "got": "wrong"}]
+    assert result["document"]["id"] == 1
+
+
+def test_calibrate_containment_counts_correct(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"limit?": "The peak current limit is 12 A."}
+
+    result = engine.calibrate(1, [{"question": "limit?", "expected": "12 A"}])
+
+    assert result["correct"] == 1
+    assert result["misses"] == []
+
+
+def test_calibrate_strict_requires_exact(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"limit?": "The peak current limit is 12 A."}
+
+    result = engine.calibrate(1, [{"question": "limit?", "expected": "12 A"}], strict=True)
+
+    assert result["correct"] == 0  # containment doesn't count under strict
+
+
+def test_calibrate_fuzzy_tiebreak_passes_near_match(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"temp?": "thermal shutdown at 150 C"}
+
+    result = engine.calibrate(1, [{"question": "temp?", "expected": "thermal shutdown at 150C"}])
+
+    assert result["correct"] == 1  # spacing drift cleared via grounding()'s fuzzy path
+
+
+def test_calibrate_fuzzy_uses_anchored_window_semantics(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {
+        "temp?": "Per section 9, the unit enters thermal shutdown at 150 C to protect the cell."
+    }
+
+    result = engine.calibrate(1, [{"question": "temp?", "expected": "thermal shutdown at 150C"}])
+
+    # The near-match is embedded in a verbose answer: anchored-window scoring
+    # passes it where a whole-string ratio would fail.
+    assert result["correct"] == 1
+
+
+def test_calibrate_unknown_document_raises(engine, fake_llama):
+    with pytest.raises(UnknownDocumentError):
+        engine.calibrate(999, [{"question": "q", "expected": "e"}])
+    assert fake_llama.called("chat") == []  # fails before any generation
+
+
+def test_calibrate_runs_through_query_path(engine, fake_llama, fake_db):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"q1": "a", "q2": "b"}
+
+    engine.calibrate(1, [
+        {"question": "q1", "expected": "a"},
+        {"question": "q2", "expected": "b"},
+    ])
+
+    assert len(fake_db.queries) == 2  # one logged query per battery item
+    assert all(q["success"] is True for q in fake_db.queries)

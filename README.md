@@ -141,8 +141,29 @@ check) but **cannot** harden `absent` (`quote_grounded: null`), and it verifies
 the quote's *existence*, not the claim's *entailment* — the model can still
 misread real evidence. Treat it as a **fail-safe gate**: auto-pass only on
 `supported` with a grounded quote; route `absent` and `contradicted` to review.
-Scoring each canon's reliability (the per-canon calibration battery) is next on
-the [roadmap](docs/ROADMAP.md).
+And you don't have to guess how reliable the oracle is on a given document —
+**calibrate** it (below).
+
+### Know your canon's reliability
+
+`absent` is the honest weak spot: on a long document a model can miss a fact
+that *is* there (lost-in-the-middle) and answer `absent`. Instead of guessing
+that rate, measure it. `POST /documents/{id}/calibrate` runs a known-answer Q/A
+battery against the document at `temperature 0` and scores each answer:
+
+```bash
+curl -X POST http://localhost:8000/documents/7/calibrate \
+  -H "Content-Type: application/json" \
+  -d '{"qa": [{"question": "What is the peak current limit?", "expected": "12 A"},
+              {"question": "When does thermal shutdown trigger?", "expected": "150 C"}]}'
+# → {"document": {...}, "n": 2, "correct": 2, "accuracy": 1.0, "strict": false, "misses": []}
+```
+
+`accuracy` ≈ 1 − the expected miss rate for that battery, so you can pick a safe
+operating point (a smaller canon, a bigger model) *before* you rely on it, and
+`misses` shows exactly what the model got wrong. The ground truth is yours, so
+this measures **this canon under this model** — not the model in general. The
+bundled `calibration` workflow wraps the same call for non-technical operators.
 
 ### It composes with LLM wikis and second brains
 

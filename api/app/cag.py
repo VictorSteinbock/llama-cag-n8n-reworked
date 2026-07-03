@@ -103,6 +103,25 @@ def _estimate_turn_tokens(content: str) -> int:
     return len(content) // 3 + 8
 
 
+def _normalize_answer(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _score_answer(got: str, expected: str, *, strict: bool, threshold: float) -> bool:
+    """Did the answer match the expected value? Containment-first: a correct short
+    answer ("12 A") embedded in a verbose reply must score correct, which a
+    whole-string ratio would miss. Below containment, grounding()'s anchored-window
+    fuzzy match (from F1) tolerates spacing/format drift ("150C" vs "150 C")."""
+    exp, ans = _normalize_answer(expected), _normalize_answer(got)
+    if not exp:
+        return False  # empty expected is a spec error, never a pass
+    if strict:
+        return ans == exp
+    if exp in ans:  # normalized containment: the primary signal
+        return True
+    return grounding(expected, got, threshold=threshold)["match_ratio"] >= threshold
+
+
 class CagEngine:
     def __init__(self, llama: LlamaClient, db: Database, settings: Settings) -> None:
         self._llama = llama
@@ -498,6 +517,45 @@ class CagEngine:
             "document": result["document"],
             "duration_ms": result["duration_ms"],
             "timings": result["timings"],
+        }
+
+    def calibrate(
+        self, document_id: int, qa: list[dict], *, strict: bool = False,
+        max_tokens: int | None = None,
+    ) -> dict:
+        """Run a known-answer Q/A battery against a document at temperature 0 and
+        score each answer, returning {n, correct, accuracy, misses}.
+
+        Measures *this* canon under *this* model — the escalation rate you should
+        expect before trusting the oracle on it. Composes over query() per item
+        (builds no prompt of its own, so SYSTEM_TEMPLATE and KV reuse are
+        untouched, invariant 1), and query() releases _lock between items so a
+        long battery never starves health() (invariant 4). The 404 check happens
+        before any generation (fail fast)."""
+        doc = self._db.get_document(document_id)
+        if doc is None:
+            raise UnknownDocumentError(f"No document with id {document_id}")
+        threshold = self._settings.calibrate_match_threshold
+        correct, misses = 0, []
+        for item in qa:
+            question, expected = item["question"], item["expected"]
+            result = self.query(
+                question, document_id=document_id, temperature=0.0, max_tokens=max_tokens
+            )
+            got = result["answer"]
+            if _score_answer(got, expected, strict=strict, threshold=threshold):
+                correct += 1
+            else:
+                misses.append({"question": question, "expected": expected, "got": got})
+        n = len(qa)
+        accuracy = round(correct / n, 4) if n else 0.0
+        if hasattr(self._db, "set_reliability"):  # no-op here; lights up with the deferred column
+            self._db.set_reliability(document_id, accuracy)
+        return {
+            "document": {
+                "id": doc["id"], "file_name": doc["file_name"], "n_tokens": doc["n_tokens"],
+            },
+            "n": n, "correct": correct, "accuracy": accuracy, "strict": strict, "misses": misses,
         }
 
     def _make_hot(self, doc: dict) -> tuple[int, str]:

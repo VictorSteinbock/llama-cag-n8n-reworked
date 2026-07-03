@@ -307,3 +307,58 @@ def test_stats_shows_savings_when_price_set(fake_llama, fake_db, tmp_path):
         savings = priced_client.get("/stats").json()["savings"]
 
     assert savings["estimated_usd"] == round(480 / 1000 * 0.003, 4)
+
+
+# --- F4: POST /documents/{id}/calibrate ------------------------------------
+
+def test_calibrate_endpoint_happy_path(client, fake_llama):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    fake_llama.scripted = {"q1": "Fredville", "q2": "wrong"}
+
+    response = client.post("/documents/1/calibrate", json={"qa": [
+        {"question": "q1", "expected": "Fredville"},
+        {"question": "q2", "expected": "Metropolis"},
+    ]})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["n"] == 2
+    assert body["correct"] == 1
+    assert body["accuracy"] == 0.5
+    assert body["document"]["id"] == 1
+    assert len(body["misses"]) == 1
+
+
+def test_calibrate_unknown_document_is_404(client):
+    client.post("/documents/text", json={"text": "something"})
+    response = client.post(
+        "/documents/999/calibrate", json={"qa": [{"question": "q", "expected": "e"}]}
+    )
+    assert response.status_code == 404
+
+
+def test_calibrate_empty_battery_is_422(client):
+    client.post("/documents/text", json={"text": "something"})
+    response = client.post("/documents/1/calibrate", json={"qa": []})
+    assert response.status_code == 422
+
+
+def test_calibrate_over_cap_is_422(fake_llama, fake_db, tmp_path):
+    from app.cag import CagEngine
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", calibrate_max_items=2,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    with TestClient(create_app(engine=engine)) as capped_client:
+        capped_client.post("/documents/text", json={"text": "Fredville is the capital."})
+        response = capped_client.post("/documents/1/calibrate", json={"qa": [
+            {"question": "q1", "expected": "a"},
+            {"question": "q2", "expected": "b"},
+            {"question": "q3", "expected": "c"},
+        ]})
+
+    assert response.status_code == 422
+    assert "CALIBRATE_MAX_ITEMS" in response.json()["detail"]

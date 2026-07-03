@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # price; savings ≈ tokens_reused/1000 × this. 0.0 (default) hides the money line.
     cloud_price_per_1k_input: float = 0.0
 
+    # Calibration battery: max Q/A pairs accepted by POST /documents/{id}/calibrate.
+    calibrate_max_items: int = 100
+    # Pass line for non-strict answer scoring (normalized containment always counts;
+    # below it, difflib ratio must clear this). Distinct from quote_match_threshold.
+    calibrate_match_threshold: float = 0.85
+
     # Paraphrase tolerance for POST /verify's mechanical quote check: the minimum
     # difflib ratio at which a non-exact quote still counts as grounded. Higher =
     # stricter. Behavioral (not geometry), but plumbed through docker-compose.yml's
