@@ -94,8 +94,10 @@ bigger than the context window. Teams needing multi-user auth.
    - Timeliness hook: Karpathy's LLM Wiki (April 2026) made "compounding
      knowledge, read once" mainstream — position this stack as the *serving
      layer* for that pattern (the wiki curates; this pins and serves it whole,
-     locally), plus the temperature-0 "grounding oracle" as a hallucination
-     hash-check for agent output.
+     locally), plus the temperature-0 "grounding oracle" as a reproducible,
+     cite-checked grounding gate for agent output (keep the claim honest: it
+     catches fabricated citations and fails safe on the rest — see
+     docs/ROADMAP.md for the mechanical quote-check that hardens it).
    - Unified-memory angle for the same crowd: a 128 GB Strix Halo box or Mac
      Studio holds a *shelf* of 100k-token documents hot in parallel slots
      (`CAG_SLOTS`), and the sweep workflow answers hundreds of questions for

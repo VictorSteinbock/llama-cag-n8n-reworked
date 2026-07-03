@@ -91,17 +91,19 @@ while only the questions and answers ever occupy the agent's own context.
 parallel slots — see [docs/HARDWARE.md](docs/HARDWARE.md) for per-tier model
 recommendations, `.env` presets, and the native-Mac (Metal) recipe.
 
-## The grounding oracle — force any AI to stick to your rulebook
+## The grounding oracle — check any AI against your rulebook
 
-The sharpest use is **the grounding oracle** — a hash check for facts. At
-`temperature 0` with the built-in rule ("answer only from the
-document; say so if absent"), the pinned canon becomes a *deterministic
-verifier*: same claim + same document → same verdict, every time.
+The sharpest use is **the grounding oracle**: a reproducible, source-grounded
+fact-checker. At `temperature 0` with the built-in rule ("answer only from the
+document; say so if absent"), the pinned canon becomes a verifier that is
+*reproducible* — same claim + same document → same verdict, every time — and
+that must **cite the passage it relied on**, so invented support shows up as a
+quote you can check instead of hiding in fluent prose.
 
 ```mermaid
 flowchart LR
     A["🤖 Agent drafts a claim<br/>(cloud model, notes, memory)"] --> V{"ask_document:<br/>'Does the canon support this?<br/>Quote the passage or say ABSENT.'"}
-    V -- "supported + quote" --> OK["✅ proceed, cited"]
+    V -- "supported + quote" --> OK["✅ quote checks out → proceed, cited"]
     V -- "ABSENT / contradicts" --> FLAG["🚩 flag before it ships"]
 ```
 
@@ -126,6 +128,17 @@ This closes a **productized critique loop**: a drafting agent (Claude Code, or
 any model) emits claims → the verify webhook checks each against the canon →
 the agent refines the ones that come back `absent` or `contradicted`, before
 anything ships.
+
+**What it guarantees — and what it doesn't.** The verdict is *reproducible* and
+*source-grounded*: the model always has the whole document in context (no
+retrieval miss) and must quote its evidence, so a fabricated citation is
+visible. But it is a model judgement, not a proof — the model can misread real
+evidence, and an `absent` verdict may be a miss on a long document rather than a
+true gap. Treat it as a **fail-safe gate**: auto-pass only on `supported` with a
+quote that checks out; route `absent` and `contradicted` to review. Turning that
+citation into an *automatic* check (does the quote literally appear in the
+source?) and scoring each canon's retrieval reliability are the first items on
+the [roadmap](docs/ROADMAP.md).
 
 ### It composes with LLM wikis and second brains
 
@@ -364,7 +377,7 @@ Pass a `json_schema` (a JSON Schema object) on `/query` and the answer is
 grammar-samples the completion, so you can parse the reply directly with no
 regex or retry loop. It constrains sampling only: the cached document prefix is
 byte-identical to any other query, so a schema-constrained answer is exactly as
-cheap. This is what makes the [grounding oracle](#the-grounding-oracle--force-any-ai-to-stick-to-your-rulebook)
+cheap. This is what makes the [grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook)
 above a *typed* verifier — a claim in, a machine-readable verdict out:
 
 ```bash
@@ -385,6 +398,30 @@ curl -X POST http://localhost:8000/query \
       }'
 # → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\"}", …}
 ```
+
+### Preparing documents (PDFs, scans, tables)
+
+Ingestion reads **text**. A `.txt`, `.md`, or `.html` file, or a PDF with a real
+text layer, extracts cleanly. What does *not* survive plain extraction:
+
+- **Scanned / image-only PDFs** — there is no text to pull, so ingest returns
+  `415` (OCR is deliberately out of scope for the request path).
+- **Charts, graphs, diagrams** — a bar chart's meaning lives in pixels; text
+  extraction drops it silently.
+- **Complex tables / multi-column layouts** — `pypdf` often mangles column
+  order, so a "successful" extraction can still be quietly wrong.
+
+The stack trusts its extracted text as ground truth, so **garbage extraction
+means confidently wrong grounding** — the one failure no downstream safeguard
+can catch. The fix is to prepare rich documents *before* ingesting: convert them
+to clean Markdown with a vision-capable model or a document-to-Markdown tool (a
+chart becomes a described paragraph, a table becomes a Markdown table), eyeball
+the result, then drop the `.md` into the watch folder. This is a deliberate
+boundary — **cag-api ingests text; turning a visual PDF into faithful text is a
+separate preprocessing step**, kept out of the request path (which stays
+shell-free by design). An optional bundled converter is on the
+[roadmap](docs/ROADMAP.md); until then any PDF→Markdown tool works, because the
+ingestion layer only cares that what arrives is faithful text.
 
 ## Choosing a model (state of play, mid-2026)
 
@@ -613,6 +650,17 @@ Ancestry: this is a ground-up rebuild of the original
 [AbelCoplet/llama-cag-n8N](https://github.com/AbelCoplet/llama-cag-n8N), which
 had the right idea before llama.cpp's slot save/restore made honest CAG a config
 option instead of a science project.
+
+## Roadmap
+
+Planned capabilities — each with a full implementation plan, from design to
+tests — live in **[docs/ROADMAP.md](docs/ROADMAP.md)**: the mechanical
+quote-grounding check that hardens the oracle, per-canon reliability scoring, an
+answer-gating pattern for support bots, structured-verdict scope fields,
+usage/cost observability, an optional PDF→Markdown preprocessor, and the larger
+deferred items (cross-document queries, multi-user). The plans are written so a
+contributor can pick one up and execute it without this context — or open an
+issue to discuss one first.
 
 ## Updating & maintenance
 
