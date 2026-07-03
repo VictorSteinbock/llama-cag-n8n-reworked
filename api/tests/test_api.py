@@ -362,3 +362,65 @@ def test_calibrate_over_cap_is_422(fake_llama, fake_db, tmp_path):
 
     assert response.status_code == 422
     assert "CALIBRATE_MAX_ITEMS" in response.json()["detail"]
+
+
+# --- F9: zero-install web UI at /ui ----------------------------------------
+
+def test_webui_served_at_ui(client):
+    response = client.get("/ui/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert 'id="view"' in response.text  # the SPA's swap target
+
+
+def test_webui_index_is_self_contained():
+    import pathlib
+    import re
+
+    html = (pathlib.Path(__file__).resolve().parents[1] / "app" / "webui" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    # No external resource loads: every src/href must be relative or data:, never
+    # a CDN/font/script URL (keeps the page CSP-clean and offline).
+    assert not re.search(r'(?:src|href)\s*=\s*["\']https?://', html, re.I)
+
+
+def test_webui_disabled_returns_404(fake_llama, fake_db, tmp_path):
+    from app.cag import CagEngine
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", webui_enabled=False,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    with TestClient(create_app(engine=engine)) as disabled_client:
+        assert disabled_client.get("/ui/").status_code == 404
+
+
+def test_webui_index_js_parses_if_node_available():
+    # Guard against a syntax error shipping in the SPA's inline script (which the
+    # served/self-contained tests can't catch — they never execute the JS). Runs
+    # `node --check`; skips cleanly where node isn't on PATH (e.g. python-only CI).
+    import pathlib
+    import re
+    import subprocess
+    import tempfile
+
+    html = (pathlib.Path(__file__).resolve().parents[1] / "app" / "webui" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+    js = max(scripts, key=len)  # the SPA logic is the largest script block
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(js)
+        js_path = f.name
+    try:
+        proc = subprocess.run(
+            ["node", "--check", js_path], capture_output=True, text=True
+        )
+    except (FileNotFoundError, OSError):
+        pytest.skip("node not available")
+    finally:
+        pathlib.Path(js_path).unlink(missing_ok=True)
+    assert proc.returncode == 0, proc.stderr

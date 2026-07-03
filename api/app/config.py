@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # price; savings ≈ tokens_reused/1000 × this. 0.0 (default) hides the money line.
     cloud_price_per_1k_input: float = 0.0
 
+    # Serve the zero-install web UI at /ui. Loopback-only by design (the stack is
+    # unauthenticated); see the security note in docs/ROADMAP.md F9 before binding
+    # the API beyond 127.0.0.1.
+    webui_enabled: bool = True
+
     # Calibration battery: max Q/A pairs accepted by POST /documents/{id}/calibrate.
     calibrate_max_items: int = 100
     # Pass line for non-strict answer scoring (normalized containment always counts;

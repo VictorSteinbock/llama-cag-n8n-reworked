@@ -2,10 +2,12 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -230,6 +232,15 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
     @app.post("/maintenance")
     def maintenance(request: Request):
         return _engine(request).maintenance()
+
+    # Zero-install web UI (F9): a static SPA mounted at a sub-path, registered
+    # AFTER the JSON routes so it never shadows them. The .is_dir() guard keeps
+    # the app importable if the asset is absent (a partial checkout just skips
+    # the mount); WEBUI_ENABLED can turn it off entirely.
+    webui_dir = Path(__file__).parent / "webui"
+    webui_on = engine.settings.webui_enabled if engine is not None else Settings().webui_enabled
+    if webui_dir.is_dir() and webui_on:
+        app.mount("/ui", StaticFiles(directory=webui_dir, html=True), name="webui")
 
     return app
 

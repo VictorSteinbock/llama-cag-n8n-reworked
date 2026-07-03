@@ -266,6 +266,21 @@ The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
 and how many prompt tokens were actually evaluated — after the first query
 that number should be tiny.
 
+**…or open the web UI:**
+
+Nothing to install — once the stack is up, open **http://localhost:8000/ui** in a
+browser. Drag in a document, chat with it (with the cache-source chip and token
+receipt), verify a list of claims, and see which documents are Hot / on Disk /
+Cold. It's a pure same-origin client of the endpoints above.
+
+> **Security boundary.** The stack is **unauthenticated by design; loopback is
+> the security boundary.** The web UI is for the **local host**. Reaching it from
+> another machine means binding the API port beyond `127.0.0.1`, which exposes an
+> **unauthenticated API on your network** — only do that behind an authenticating
+> reverse proxy, or on a trusted LAN. Set `WEBUI_ENABLED=false` to turn the
+> browser surface off entirely. General multi-user access is a separate roadmap
+> item (F8), not this feature.
+
 ## The economics — the receipt
 
 Every answer comes with a receipt. Here is what it looks like when a

@@ -34,7 +34,7 @@ flowchart LR
 | Component | Image | Owns |
 |-----------|-------|------|
 | **llama-server** | `ghcr.io/ggml-org/llama.cpp:server` (`:server-cuda` with `--gpu`, `:server-vulkan` with `--vulkan`) | Model download (`-hf`), tokenization, inference, prompt templating, per-slot KV cache in RAM (quantized `q8_0`), KV persistence to disk (`--slot-save-path`) |
-| **cag-api** | built from [`api/`](../api) | Document registry, text extraction (txt/md/html/pdf), context-fit validation, slot orchestration (which doc is "hot"), self-healing, query log, maintenance, mechanical quote-grounding (`POST /verify`), per-canon reliability calibration (`POST /documents/{id}/calibrate`), usage & cost-savings aggregates (`GET /stats`, over existing `query_log` columns) |
+| **cag-api** | built from [`api/`](../api) | Document registry, text extraction (txt/md/html/pdf), context-fit validation, slot orchestration (which doc is "hot"), self-healing, query log, maintenance, mechanical quote-grounding (`POST /verify`), per-canon reliability calibration (`POST /documents/{id}/calibrate`), usage & cost-savings aggregates (`GET /stats`, over existing `query_log` columns), a static web UI (`StaticFiles` mount at `/ui`, gated by `WEBUI_ENABLED`) |
 | **n8n** | `docker.n8n.io/n8nio/n8n` | Automation only: folder watch → ingest, webhook → query, schedule → maintenance. Zero business logic, zero credentials |
 | **postgres** | `postgres:17-alpine` | `n8n` database (n8n internal) + `llamacag` database (`documents`, `query_log`) |
 

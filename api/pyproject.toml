@@ -27,6 +27,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+# Ship the static web UI (F9) in the wheel/editable install — packages.find
+# collects .py only, so the .html asset needs an explicit entry or the
+# StaticFiles mount would silently find no directory.
+[tool.setuptools.package-data]
+app = ["webui/*.html"]
+
 [tool.ruff]
 line-length = 100
 

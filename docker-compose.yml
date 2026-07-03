@@ -58,6 +58,8 @@ services:
       # POST /documents/{id}/calibrate: battery cap + non-strict scoring pass line.
       - CALIBRATE_MAX_ITEMS=${CALIBRATE_MAX_ITEMS:-100}
       - CALIBRATE_MATCH_THRESHOLD=${CALIBRATE_MATCH_THRESHOLD:-0.85}
+      # Serve the zero-install web UI at /ui (loopback-only; unauthenticated stack).
+      - WEBUI_ENABLED=${WEBUI_ENABLED:-true}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
       - CACHE_DIR=/caches
       - DB_HOST=db
