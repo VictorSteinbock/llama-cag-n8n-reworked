@@ -58,6 +58,39 @@ tokens. **Numbers, not adjectives — that's the whole point.** (The JSON above
 is an illustrative response — the *shape* is guaranteed by the mechanism, and
 your own first query prints the real receipt.)
 
+## Cache states and latency — the behaviour model
+
+Earlier versions made you choose between hand-managed modes (warm-up, basic,
+fallback, disabled). v2 has **one automatic policy** and three observable
+states — and every answer's `timings.cache_source` tells you which one served it:
+
+| State | When it happens | Added latency | Memory effect |
+|-------|-----------------|---------------|---------------|
+| `memory` — hot in a slot | The document was ingested or queried recently; up to `CAG_SLOTS` documents stay hot at once (least-recently-used gets evicted) | **None** — only your question and the answer are computed | Uses the slot's share of the fixed KV pool |
+| `disk` — restored | First query on a document after a restart or eviction | **Seconds** — the saved KV state is read from disk; the text is *not* re-processed | Loads into a slot (evicting the LRU document if all slots are busy) |
+| `recomputed` — self-heal | Cache file missing or invalidated (e.g. you switched models) | The one-time full read, **once** — then it re-saves itself and is fast again | Same as a fresh warm |
+
+Three strategy decisions are baked in, so there is nothing to manage:
+
+- **Warm-at-ingest.** The expensive read happens when a document is *added*
+  (ingest returns only after the cache is saved to disk) — so the first
+  question is never the slow one. Latency is paid where you expect it: at drop
+  time, visibly, once.
+- **Always-warm server.** v1's "warm-up mode" (a persistent model instance held
+  in RAM) is simply how llama-server always runs now — generalized to
+  `CAG_SLOTS` simultaneous hot documents. And v1's 8,000-character fallback
+  mode — the silent truncator behind "spotty" answers — is gone entirely:
+  there is no degraded path, only the three honest states above.
+- **Fresh context by default.** A `/query` without `history` is a clean-room
+  question against the document; pass `history` when you *want* a conversation.
+
+**Memory behaviour, precisely:** RAM usage is the model weights plus **one
+fixed KV pool** sized by `LLAMA_CTX_SIZE` (halved by `q8_0`), allocated at
+startup — it does **not** grow as you add documents. Documents cost *disk*
+instead (one cache file each; the nightly maintenance report shows
+`cache_bytes`). So a hundred ingested documents and one ingested document use
+the same RAM — the slots just decide which few are instant at any moment.
+
 ## Where this shines
 
 The mechanism is generic, but it pays off hardest in a specific shape of
