@@ -424,3 +424,31 @@ def test_webui_index_js_parses_if_node_available():
     finally:
         pathlib.Path(js_path).unlink(missing_ok=True)
     assert proc.returncode == 0, proc.stderr
+
+
+# --- F10: sample documents + guided first-run ------------------------------
+
+def _samples_dir():
+    import pathlib
+    return pathlib.Path(__file__).resolve().parents[2] / "samples"
+
+
+def test_sample_ingests_to_cached(client):
+    text = (_samples_dir() / "refund-policy.md").read_text(encoding="utf-8")
+    response = client.post(
+        "/documents/text", json={"text": text, "file_name": "refund-policy.md"}
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "cached"
+    assert "content" not in body  # never echoed back
+
+
+def test_sample_files_are_nonempty_markdown():
+    manual = (_samples_dir() / "acme-widget-manual.md").read_text(encoding="utf-8")
+    refund = (_samples_dir() / "refund-policy.md").read_text(encoding="utf-8")
+    assert manual.strip()
+    assert refund.strip()
+    # The demo-critical conditional the Verify catch depends on must not silently
+    # disappear from the refund sample.
+    assert "only if" in refund.lower()

@@ -273,6 +273,11 @@ browser. Drag in a document, chat with it (with the cache-source chip and token
 receipt), verify a list of claims, and see which documents are Hot / on Disk /
 Cold. It's a pure same-origin client of the endpoints above.
 
+No documents yet? The empty state offers **Try a sample** — one click ingests a
+bundled sample from [`samples/`](samples/) and drops you into Chat. Load the
+refund policy, then paste *"Widgets are refundable within 30 days"* into **Verify**
+to watch the oracle catch the condition.
+
 > **Security boundary.** The stack is **unauthenticated by design; loopback is
 > the security boundary.** The web UI is for the **local host**. Reaching it from
 > another machine means binding the API port beyond `127.0.0.1`, which exposes an

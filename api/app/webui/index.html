@@ -118,6 +118,52 @@
 
   var state = { tab: "chat", docs: [], hot: {}, activeDocId: null, history: [] };
 
+  // Curated samples for the empty-state first-run. The browser can't read the
+  // server's samples/ folder, so the text is embedded here; samples/*.md on disk
+  // are the source of truth (README + tests reference them).
+  var SAMPLES = {
+    manual: {
+      file_name: "acme-widget-manual.md",
+      question: "How long does the battery last?",
+      text: [
+        "# ACME Widget Pro — Owner's Manual",
+        "",
+        "## Battery and power",
+        "The battery lasts 18 hours on a full charge. A full charge takes 90 minutes",
+        "from empty. The Widget charges over USB-C only; wireless charging is not supported.",
+        "",
+        "## Operating conditions",
+        "Operating temperature range: 0 °C to 40 °C. Do not operate the Widget above",
+        "40 °C. Thermal shutdown triggers at 55 °C to protect the cell.",
+        "",
+        "## Warranty",
+        "The warranty period is 24 months from the date of purchase. The warranty covers",
+        "manufacturing defects only; it does not cover water damage or accidental drops.",
+        "",
+        "## Firmware",
+        "Firmware updates are delivered over Wi-Fi only; USB updates are not supported."
+      ].join("\n")
+    },
+    policy: {
+      file_name: "refund-policy.md",
+      question: "Can I get a refund if I changed my mind?",
+      hint: "Now switch to Verify and paste: “Widgets are refundable within 30 days” to see the oracle catch the condition.",
+      text: [
+        "# ACME Refund Policy",
+        "",
+        "## Eligibility",
+        "A widget is refundable only if it is defective and returned within 30 days of",
+        "delivery. Change-of-mind returns are not eligible for a refund.",
+        "",
+        "## Processing",
+        "Refunds are processed within 5 business days of the returned item being received.",
+        "",
+        "## Charges",
+        "Shipping charges are non-refundable."
+      ].join("\n")
+    }
+  };
+
   // --- same-origin API wrapper (relative URLs => no CORS, no base to configure) ---
   async function api(path, opts) {
     opts = opts || {};
@@ -400,12 +446,41 @@
     }
   }
 
-  // --- empty state (F10 extends this with sample buttons) -----------------
+  // --- empty state: guided first-run (F10) --------------------------------
   function emptyState() {
     el("view").innerHTML =
       '<div class="panel empty"><div id="emptyState">' +
-        "Nothing ingested yet — add a document in the <b>Library</b> tab to get started." +
+        "<p>Nothing ingested yet — <b>try a sample</b> to see it remember.</p>" +
+        '<div class="row" style="justify-content:center; gap:10px; flex-wrap:wrap">' +
+          '<button class="act" data-sample="manual">ACME Widget manual</button>' +
+          '<button class="act" data-sample="policy">Refund policy</button>' +
+        "</div>" +
+        '<p class="muted" style="margin-top:14px">…or add your own in the <b>Library</b> tab.</p>' +
       "</div></div>";
+    Array.prototype.forEach.call(el("emptyState").querySelectorAll("[data-sample]"), function (b) {
+      b.onclick = function () { trySample(b.getAttribute("data-sample")); };
+    });
+  }
+  async function trySample(key) {
+    var s = SAMPLES[key];
+    if (!s) return;
+    try {
+      var res = await api("/documents/text", {
+        method: "POST", body: JSON.stringify({ file_name: s.file_name, text: s.text })
+      });
+      state.activeDocId = res.id;
+      await go("chat");
+      var input = el("chatInput");
+      if (input) { input.value = s.question; input.focus(); }
+      if (s.hint) toastHint(s.hint);
+    } catch (e) { toast(e); }
+  }
+  function toastHint(msg) {
+    var t = document.getElementById("toast");
+    t.style.background = "var(--amber)";
+    t.textContent = msg;
+    t.style.display = "block";
+    setTimeout(function () { t.style.display = "none"; t.style.background = "var(--red)"; }, 7000);
   }
 
   // --- routing ------------------------------------------------------------

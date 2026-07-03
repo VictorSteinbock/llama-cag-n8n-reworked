@@ -26,7 +26,7 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 | F7 | Cross-document queries (concat / diff / federate) | Rework | L | Design-first |
 | F8 | Multi-user / RBAC | Product fork | XL | Design-first |
 | F9 | Zero-install web UI (served at `/ui`) | New capability | M | Shipped (branch) |
-| F10 | Sample documents + guided first-run | Tooling | S | Ready |
+| F10 | Sample documents + guided first-run | Tooling | S | Shipped (branch) |
 
 ---
 
