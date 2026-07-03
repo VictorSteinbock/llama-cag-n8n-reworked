@@ -10,6 +10,9 @@ re-reading the document every time.**
 [![CI](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-34D399.svg)](LICENSE)
 
+> **Not technical?** Read **[the two-minute, plain-words version](docs/EXPLAINER.md)**
+> — a brilliant reader, a filing clerk, and why reading once beats re-reading forever.
+
 This is a self-hosted implementation of **Cache-Augmented Generation (CAG)**: a
 document is processed by the model **once**, the resulting KV cache (the model's
 internal state after reading it) is **saved to disk**, and every later question
