@@ -31,6 +31,13 @@ class FakeCagApi:
         self.requests: list[httpx.Request] = []
         self.documents: list[dict] = []
         self.answer = "The safety limit is 8 A continuous."
+        # Default /verify verdict (overridable per test).
+        self.verdict = "supported"
+        self.quote = "peak at 12 A for 10 s"
+        self.conditions = ""
+        self.quote_grounded: bool | None = True
+        self.match_ratio = 1.0
+        self.grounding_method = "exact"
         # (method, path) -> handler(request) -> httpx.Response
         self.responses: dict[tuple[str, str], Callable[[httpx.Request], httpx.Response]] = {}
 
@@ -47,6 +54,7 @@ class FakeCagApi:
         handler = {
             ("GET", "/documents"): self._list_documents,
             ("POST", "/query"): self._query,
+            ("POST", "/verify"): self._verify,
             ("POST", "/documents/text"): self._ingest_text,
             ("POST", "/documents"): self._ingest_file,
         }.get(key)
@@ -74,6 +82,26 @@ class FakeCagApi:
                     "answer_tokens": 96,
                     "cache_source": "memory",
                 },
+            },
+        )
+
+    def _verify(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "claim": body.get("claim", ""),
+                "verdict": self.verdict,
+                "quote": self.quote,
+                "conditions": self.conditions,
+                "quote_grounded": self.quote_grounded,
+                "match_ratio": self.match_ratio,
+                "grounding_method": self.grounding_method,
+                "document": {"id": body.get("document_id") or 7, "file_name": "manual.pdf",
+                             "n_tokens": 28400},
+                "duration_ms": 210,
+                "timings": {"prompt_tokens_evaluated": 20, "prompt_tokens_from_cache": 28400,
+                            "answer_tokens": 30, "cache_source": "memory"},
             },
         )
 

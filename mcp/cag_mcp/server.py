@@ -68,6 +68,38 @@ def _provenance(result: dict) -> str:
     return "[" + " · ".join(parts) + "]"
 
 
+def _render_verdict(result: dict) -> str:
+    """Agent-facing rendering of a /verify result: the verdict, the quote, and —
+    the point of the endpoint — whether that quote is mechanically grounded in
+    the source, plus any scope condition, then the same provenance line."""
+    verdict = result.get("verdict", "?")
+    quote = result.get("quote") or ""
+    conditions = result.get("conditions") or ""
+    grounded = result.get("quote_grounded")
+    method = result.get("grounding_method", "?")
+    ratio = result.get("match_ratio")
+
+    if grounded is True:
+        grounded_line = f"quote_grounded: yes — quote found in source ({method}, ratio {ratio})"
+    elif grounded is False:
+        grounded_line = (
+            f"quote_grounded: NO — quote is NOT in the source, likely fabricated "
+            f"({method}, ratio {ratio})"
+        )
+    else:
+        grounded_line = "quote_grounded: n/a — no quote to check (absent verdict)"
+
+    lines = [f"verdict: {verdict}"]
+    if quote:
+        lines.append(f'quote: "{quote}"')
+    lines.append(grounded_line)
+    if conditions:
+        lines.append(f"conditions: {conditions}")
+    lines.append("")
+    lines.append(_provenance(result))
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def list_documents() -> str:
     """List the documents the local CAG stack currently knows about.
@@ -158,6 +190,53 @@ def ask_document(
 
     answer = result.get("answer", "")
     return f"{answer}\n\n{_provenance(result)}"
+
+
+@mcp.tool()
+def verify(claim: str, document_id: int | None = None) -> str:
+    """Verify a claim against a document held in the local CAG stack.
+
+    Use this to fact-check a statement — your own draft, another model's output,
+    a user's assertion — against a pinned source of truth before you rely on it.
+    The stack answers with a strict verdict (``supported``, ``contradicted``, or
+    ``absent``) AND **mechanically** checks that the quote it cites actually
+    occurs in the source document, reporting ``quote_grounded``. That catches a
+    fabricated citation with no extra model call — the single most useful signal
+    here: a ``supported`` verdict whose ``quote_grounded`` is ``no`` is not
+    trustworthy.
+
+    Pass ``document_id`` to target a specific document; omit it to verify against
+    the most recently cached one. Returns the verdict, the cited quote, whether
+    that quote is grounded, any scope ``conditions`` the document places on the
+    claim (e.g. "only if defective"), and a provenance line.
+
+    Limits worth knowing: grounding hardens ``supported``/``contradicted`` (there
+    is a passage to check) but cannot harden ``absent`` (``quote_grounded`` is
+    ``n/a``), and it verifies the quote's *existence*, not the claim's
+    *entailment* — the model can still misread real evidence. Treat it as a
+    fail-safe gate: trust ``supported`` + grounded; route everything else to a
+    human.
+    """
+    try:
+        with _client() as client:
+            result = client.verify(claim, document_id=document_id)
+    except CagApiUnreachable:
+        return _STACK_DOWN_HINT
+    except CagApiError as exc:
+        if exc.status_code == 409:
+            return (
+                "No document is cached yet, so there is nothing to verify against. Ingest a "
+                "document first with ingest_file or ingest_text, then verify. "
+                f"(cag-api said: {exc.detail})"
+            )
+        if exc.status_code == 404:
+            return (
+                f"No document with id {document_id} exists. Call list_documents to see "
+                f"valid ids. (cag-api said: {exc.detail})"
+            )
+        return f"cag-api error {exc.status_code}: {exc.detail}"
+
+    return _render_verdict(result)
 
 
 @mcp.tool()
