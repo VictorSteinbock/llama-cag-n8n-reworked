@@ -20,6 +20,10 @@ class FakeDatabase:
         self.queries: list[dict] = []
         self._next_id = 1
         self.ping_ok = True
+        # When True, the next insert_document simulates losing a concurrent
+        # insert race: the row that now exists belongs to the "winner", and
+        # insert returns None (the real Database swallows UniqueViolation).
+        self.conflict_on_insert = False
 
     # -- surface used by CagEngine ------------------------------------------
     def ping(self):
@@ -51,6 +55,9 @@ class FakeDatabase:
         }
         self.documents[self._next_id] = doc
         self._next_id += 1
+        if self.conflict_on_insert:
+            self.conflict_on_insert = False
+            return None  # the row above plays the concurrent winner's
         return self._public(doc)
 
     def get_document(self, document_id, *, with_content=False):
@@ -68,11 +75,16 @@ class FakeDatabase:
         return [self._public(d) for d in self.documents.values()]
 
     def mark_cached(self, document_id, n_tokens, cache_file):
-        doc = self.documents[document_id]
+        # Mirror the real UPDATE ... RETURNING id: a missing row (deleted while
+        # the caller warmed/recomputed) updates nothing and returns False.
+        doc = self.documents.get(document_id)
+        if doc is None:
+            return False
         doc.update(
             status="cached", n_tokens=n_tokens, cache_file=cache_file,
             cached_at=dt.datetime.now(dt.UTC), error=None,
         )
+        return True
 
     def mark_failed(self, document_id, error):
         self.documents[document_id].update(status="failed", error=error)
@@ -125,19 +137,27 @@ class FakeLlama:
         self.fail_restore = False
         self.healthy = True
         self.answer = "the answer"
+        self.model_path = "/models/fake-model.gguf"
 
     def health(self):
         if not self.healthy:
             raise LlamaError("llama-server unreachable")
         return {"status": "ok"}
 
+    def props(self):
+        if not self.healthy:
+            raise LlamaError("llama-server unreachable")
+        self.calls.append(("props",))
+        return {"model_path": self.model_path, "total_slots": 1}
+
     def count_tokens(self, text):
         self.calls.append(("count_tokens", len(text)))
         return self.tokens_per_text
 
-    def chat(self, messages, *, max_tokens, temperature, slot_id=0, warm=False):
+    def chat(self, messages, *, max_tokens, temperature, slot_id=0, warm=False, json_schema=None):
         self.calls.append(("chat", messages[0]["content"][:60], warm, slot_id))
         self.last_messages = messages
+        self.last_json_schema = json_schema
         return {
             "content": self.answer,
             "timings": {"prompt_n": 12, "cache_n": 480, "predicted_n": 20},

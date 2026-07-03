@@ -103,7 +103,12 @@ def list_documents() -> str:
 
 
 @mcp.tool()
-def ask_document(question: str, document_id: int | None = None, max_tokens: int = 1024) -> str:
+def ask_document(
+    question: str,
+    document_id: int | None = None,
+    max_tokens: int = 1024,
+    json_schema: dict | None = None,
+) -> str:
     """Ask a question about a document held in the local CAG stack.
 
     This is the reason the server exists: the document never enters your
@@ -118,10 +123,23 @@ def ask_document(question: str, document_id: int | None = None, max_tokens: int 
     document; omit it to ask the most recently cached one. ``max_tokens`` caps
     the answer length. The answer is returned followed by a single provenance
     line showing the document, cache source, tokens evaluated, and latency.
+
+    Pass ``json_schema`` (a JSON Schema object) to constrain the answer: the
+    reply is then guaranteed to be valid JSON matching that schema, so you can
+    parse it directly with no post-processing. This is ideal for verification
+    verdicts — e.g. a schema for ``{claim, verdict: supported|absent|
+    contradicted, quote}`` turns a grounding check into a machine-readable
+    result. It constrains sampling only; the cached document prefix is
+    untouched, so the query stays as cheap as any other.
     """
     try:
         with _client() as client:
-            result = client.query(question, document_id=document_id, max_tokens=max_tokens)
+            result = client.query(
+                question,
+                document_id=document_id,
+                max_tokens=max_tokens,
+                json_schema=json_schema,
+            )
     except CagApiUnreachable:
         return _STACK_DOWN_HINT
     except CagApiError as exc:

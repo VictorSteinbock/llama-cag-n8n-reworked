@@ -70,6 +70,14 @@ states — and every answer's `timings.cache_source` tells you which one served 
 | `disk` — restored | First query on a document after a restart or eviction | **Seconds** — the saved KV state is read from disk; the text is *not* re-processed | Loads into a slot (evicting the LRU document if all slots are busy) |
 | `recomputed` — self-heal | Cache file missing or invalidated (e.g. you switched models) | The one-time full read, **once** — then it re-saves itself and is fast again | Same as a fresh warm |
 
+**Sizing against slot thrash:** if concurrent consumers alternate between more
+documents than `CAG_SLOTS`, every switch evicts a hot document and restores
+another from disk — so size `CAG_SLOTS` to at least the number of documents in
+active rotation, and each still gets `LLAMA_CTX_SIZE ÷ CAG_SLOTS` of context.
+Note that slots parallelize *residency*, not generation: all inference is
+serialized through the engine, so a long warm on one slot delays queries on
+the others — ingest big documents off-peak if that matters.
+
 Three strategy decisions are baked in, so there is nothing to manage:
 
 - **Warm-at-ingest.** The expensive read happens when a document is *added*
@@ -218,8 +226,26 @@ flowchart LR
 ```
 
 A cloud agent drafts; one cheap local call checks the draft against the source
-of truth *before it ships*. The sweep workflow batch-verifies a whole claims
-list the same way. Second brains and LLM wikis organize knowledge — this gives
+of truth *before it ships*. Make the verdict machine-readable with a
+[`json_schema`](#structured-output) and the oracle becomes a typed verifier: a
+claim in, a `{claim, verdict, quote}` object out. The bundled
+**claim-verification workflow** batch-verifies a whole list that way in one
+call — each claim checked at `temperature 0` against the pinned document, one
+bad claim captured without aborting the rest:
+
+```bash
+curl -X POST http://localhost:5678/webhook/cag/verify \
+  -H "Content-Type: application/json" \
+  -d '{"claims": ["The peak current limit is 12 A.",
+                  "The warranty covers water damage."]}'
+# → [{"claim": "…", "verdict": "supported",     "quote": "…"},
+#    {"claim": "…", "verdict": "contradicted",  "quote": "…"}]
+```
+
+This closes a **productized critique loop**: a drafting agent (Claude Code, or
+any model) emits claims → the verify webhook checks each against the canon →
+the agent refines the ones that come back `absent` or `contradicted`, before
+anything ships. Second brains and LLM wikis organize knowledge — this gives
 them teeth: the knowledge stops being something the model vaguely remembers
 and becomes something it must consult, and can be caught deviating from.
 
@@ -326,7 +352,7 @@ with `python llamacag.py logs llama-server`, and confirm readiness with
 **Set up n8n (one-time, ~2 minutes):**
 
 1. Open http://localhost:5678 and create the local owner account.
-2. Import the four workflows from [`n8n/workflows/`](n8n/workflows/)
+2. Import the five workflows from [`n8n/workflows/`](n8n/workflows/)
    (*Workflows → ⋯ → Import from file*).
 3. Activate each one. **No credentials to configure** — the workflows only call
    `cag-api` over the internal Docker network.
@@ -360,13 +386,42 @@ Interactive docs at http://localhost:8000/docs.
 | `POST /documents/text` | Same for raw text: `{"text": "...", "file_name": "notes.txt"}` |
 | `GET /documents` | Registry with status, token counts, usage |
 | `DELETE /documents/{id}` | Remove document + its cache file |
-| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …]}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange) |
+| `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
 | `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
 | `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 
 Duplicate content (same SHA-256) is detected and never re-warmed. A document
 that doesn't fit the context window is rejected at ingest with a `413` telling
 you the measured token count and which knob to raise.
+
+### Structured output
+
+Pass a `json_schema` (a JSON Schema object) on `/query` and the answer is
+**guaranteed to be valid JSON matching that schema** — llama-server
+grammar-samples the completion, so you can parse the reply directly with no
+regex or retry loop. It constrains sampling only: the cached document prefix is
+byte-identical to any other query, so a schema-constrained answer is exactly as
+cheap. This is what makes the [grounding oracle](#llm-wikis-second-brains--and-the-grounding-oracle)
+below a *typed* verifier — a claim in, a machine-readable verdict out:
+
+```bash
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+        "question": "Verify strictly against the document: \"The peak current limit is 12 A\". Give your verdict and the exact supporting or contradicting passage.",
+        "temperature": 0,
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "claim":   { "type": "string" },
+            "verdict": { "enum": ["supported", "absent", "contradicted"] },
+            "quote":   { "type": "string" }
+          },
+          "required": ["claim", "verdict", "quote"]
+        }
+      }'
+# → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\"}", …}
+```
 
 ## Use it from Claude Code (MCP)
 
@@ -478,15 +533,25 @@ then `python llamacag.py stop && python llamacag.py start`:
 Two knobs matter alongside the model:
 
 - **`LLAMA_CTX_SIZE`** (default **65536**) — total context, split across slots;
-  each document must fit `ctx ÷ slots − 1024`. KV memory scales with it, but
-  **`LLAMA_CACHE_TYPE_KV=q8_0`** (the default) halves that at negligible
-  quality cost — this is why 64k is now an affordable default.
+  each document must fit `ctx ÷ slots − 1120` (1024 answer + 96 prompt
+  head-room). KV memory scales with it, but **`LLAMA_CACHE_TYPE_KV=q8_0`**
+  (the default) halves that at negligible quality cost — this is why 64k is
+  now an affordable default.
 - **`CAG_SLOTS`** (default **1**) — how many documents stay *hot in RAM* at
   once. With 2–4 slots, alternating between documents never touches disk;
-  llama-server divides the context between them.
+  llama-server divides the context between them. Slots parallelize
+  *residency*, not generation: all inference is serialized through the
+  engine, so a long warm (minutes for a big document) delays queries on
+  other slots — ingest big documents via the watch folder off-peak if that
+  matters.
 
 **Changing model or quant invalidates existing caches**; they self-heal
-(recompute + re-save) on their next query.
+(recompute + re-save) on their next query. cag-api enforces this itself: it
+fingerprints the served model (llama-server's `/props` `model_path`) in a
+`model.marker` file next to the caches and wipes stale `*.bin` files once on
+mismatch — necessary because llama.cpp validates restored state files only
+*structurally*, so a same-shaped model switch (different weight quant, a
+fine-tune) would otherwise restore silently.
 
 ### GPU & native acceleration
 
@@ -519,7 +584,7 @@ for all knobs and comments). The defaults are sensible; the ones you might touch
 |----------|---------|---|
 | `LLAMA_MODEL` | `google/gemma-4-12B-it-qat-q4_0-gguf` | Model to download & serve |
 | `LLAMA_CTX_SIZE` | `65536` | Total context (split across slots) |
-| `CAG_SLOTS` | `1` | Documents kept hot in RAM simultaneously |
+| `CAG_SLOTS` | `1` | Documents kept hot in RAM simultaneously (residency only — generation stays serialized) |
 | `LLAMA_CACHE_TYPE_KV` | `q8_0` | KV cache precision (`f16` to disable quantization) |
 | `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
 | `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
@@ -539,9 +604,18 @@ Honest answer: **almost none, and no code changes for new models.**
 - **Updating the stack itself:** `git pull`, then
   `docker compose pull && python llamacag.py start` (compose rebuilds cag-api).
   CI on every commit is the regression gate.
+- **Pin for production.** The rolling `:server` image tag is fine for tinkering,
+  but a deployment should pin `LLAMA_IMAGE` to a build-numbered tag
+  (`ghcr.io/ggml-org/llama.cpp:server-b####`, see [.env.example](.env.example))
+  and upgrade deliberately rather than drifting on every pull. Safe to do: the
+  self-heal path keeps queries correct across a cache-format change in a new
+  llama.cpp build — you just pay a one-time re-warm on the first query per
+  document after the upgrade.
 - **What's automated already:** the nightly maintenance workflow reconciles
   disk and database; caches invalidated by a model switch heal themselves on
-  next query. Postgres stays pinned to a major version; n8n updates when you
+  next query. Orphaned cache files younger than an hour are only reported
+  (`skipped_recent`), never deleted, so cleanup can't race an in-flight
+  ingest. Postgres stays pinned to a major version; n8n updates when you
   pull and migrates its own database.
 - **The one watch-item:** llama-server's slot save/restore API is marked
   experimental upstream. If it ever changes, only `api/app/llama.py` follows —
@@ -577,7 +651,7 @@ Honest answer: **almost none, and no code changes for new models.**
 │   └── tests/              #   tool tests over a MockTransport fake of cag-api
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
 ├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
-├── n8n/workflows/          # 3 importable workflows: ingestion, query, maintenance
+├── n8n/workflows/          # 5 importable workflows: ingestion, query, maintenance, sweep, verify
 ├── docker-compose.yml      # llama-server + cag-api + n8n + postgres
 ├── docker-compose.gpu.yml  # NVIDIA (CUDA) override
 ├── docker-compose.vulkan.yml # Intel/AMD GPU override (Linux hosts)

@@ -71,6 +71,23 @@ def test_ask_document_passes_document_id_and_max_tokens(fake_api):
     assert payload["max_tokens"] == 256
 
 
+def test_ask_document_forwards_json_schema(fake_api):
+    schema = {
+        "type": "object",
+        "properties": {
+            "claim": {"type": "string"},
+            "verdict": {"enum": ["supported", "absent", "contradicted"]},
+            "quote": {"type": "string"},
+        },
+        "required": ["claim", "verdict", "quote"],
+    }
+    ask_document("verify this", json_schema=schema)
+    import json
+
+    payload = json.loads(fake_api.requests[-1].content)
+    assert payload["json_schema"] == schema
+
+
 def test_ask_document_409_tells_caller_to_ingest(fake_api):
     fake_api.set_response(
         "POST", "/query",

@@ -42,6 +42,11 @@ class QueryRequest(BaseModel):
     # growing history is reused from the KV cache incrementally, so multi-turn
     # chat stays cheap: only the newest tokens are ever evaluated.
     history: list[ChatTurn] | None = Field(default=None, max_length=50)
+    # Optional JSON Schema to constrain the answer: llama-server grammar-samples
+    # the completion so the reply is valid JSON per this schema. It affects
+    # sampling only — the cached document prefix is untouched. A non-object
+    # (e.g. a string) is rejected with 422 by the dict typing.
+    json_schema: dict | None = None
 
 
 def create_app(engine: CagEngine | None = None) -> FastAPI:
@@ -115,7 +120,8 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
                 "POST /documents/text {text, file_name?}",
                 "GET /documents",
                 "DELETE /documents/{id}",
-                "POST /query {question, document_id?, max_tokens?, temperature?, history?}",
+                "POST /query {question, document_id?, max_tokens?, temperature?, history?, "
+                "json_schema?}",
                 "POST /maintenance",
             ],
         }
@@ -128,8 +134,20 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
 
     @app.post("/documents", status_code=201)
     def ingest_file(request: Request, file: UploadFile):
-        data = file.file.read()
-        result = _engine(request).ingest_file(file.filename or "upload.txt", data)
+        engine = _engine(request)
+        limit_mb = engine.settings.max_upload_mb
+        data = _read_limited(file.file, limit_mb * 1024 * 1024)
+        if data is None:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": (
+                        f"Upload exceeds the {limit_mb} MB limit. Raise MAX_UPLOAD_MB "
+                        "in .env and restart if you really need bigger files."
+                    )
+                },
+            )
+        result = engine.ingest_file(file.filename or "upload.txt", data)
         return _document_response(result)
 
     @app.post("/documents/text", status_code=201)
@@ -155,6 +173,7 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
             max_tokens=body.max_tokens,
             temperature=body.temperature,
             history=[turn.model_dump() for turn in body.history] if body.history else None,
+            json_schema=body.json_schema,
         )
 
     @app.post("/maintenance")
@@ -167,6 +186,23 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
 def _document_response(result: dict) -> dict:
     # Never echo full document content back through the API.
     return {key: value for key, value in result.items() if key != "content"}
+
+
+def _read_limited(stream, limit_bytes: int) -> bytes | None:
+    """Read an upload in 1 MB chunks, stopping at the cap.
+
+    Returns the full body, or None the moment the running total exceeds
+    limit_bytes — the oversized remainder is never buffered."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = stream.read(1024 * 1024)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > limit_bytes:
+            return None
+        chunks.append(chunk)
 
 
 app = create_app()

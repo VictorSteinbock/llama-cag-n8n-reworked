@@ -25,6 +25,7 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Callable
 
 from .config import Settings
 from .db import Database
@@ -39,6 +40,7 @@ SYSTEM_TEMPLATE = (
     '<document name="{name}">\n{content}\n</document>'
 )
 
+# The ~20-token warm turn is the deliberate price of model-agnostic warming.
 WARM_USER_MESSAGE = "Reply with the single word: ready"
 
 
@@ -51,7 +53,7 @@ class DocumentTooLargeError(Exception):
         per_slot = f" ÷ CAG_SLOTS={slots}" if slots > 1 else ""
         super().__init__(
             f"Document is {n_tokens} tokens but the per-slot limit is {limit} "
-            f"(LLAMA_CTX_SIZE={ctx_size}{per_slot}, minus answer head-room). "
+            f"(LLAMA_CTX_SIZE={ctx_size}{per_slot}, minus answer + prompt head-room). "
             "Raise LLAMA_CTX_SIZE in .env and restart, or ingest a smaller document."
         )
 
@@ -70,18 +72,47 @@ def _slugify(file_name: str) -> str:
     return slug[:80] or "document"
 
 
+def _estimate_turn_tokens(content: str) -> int:
+    """Cheap turn-size estimate for history budgeting: ~3 chars per token plus
+    a small per-turn allowance for the chat template's role framing."""
+    return len(content) // 3 + 8
+
+
 class CagEngine:
     def __init__(self, llama: LlamaClient, db: Database, settings: Settings) -> None:
         self._llama = llama
         self._db = db
         self._settings = settings
-        # Serializes slot use: restore + completion must be atomic, and CPU
-        # inference is sequential anyway. Concurrent requests queue here.
+        # Two locks, two jobs.
+        #
+        # _lock serializes slot USE: restore + completion must be atomic, and
+        # CPU inference is sequential anyway. Concurrent requests queue here —
+        # possibly for minutes during a warm.
+        #
+        # _slots_guard is a momentary micro-lock protecting only the slot-map
+        # dicts (_slots/_slot_used) so readers that must never queue behind a
+        # generation (health) can snapshot them. Writers take it nested inside
+        # _lock for the map mutation lines only; it is never held across I/O.
         self._lock = threading.Lock()
+        self._slots_guard = threading.Lock()
         self._slots: dict[int, int] = {}  # slot_id -> document_id currently hot
         self._slot_used: dict[int, float] = {}  # slot_id -> monotonic last use
+        # Deferred-work runner: the healed-query re-save runs through this so
+        # the response doesn't wait for slot_save. Tests replace it with an
+        # inline runner (lambda fn: fn()) for determinism.
+        self._spawn: Callable[[Callable[[], None]], None] = (
+            lambda fn: threading.Thread(target=fn, daemon=True).start()
+        )
+        # Model-fingerprint check state: performed lazily on the first
+        # successful llama interaction per process (see _ensure_model_marker).
+        self._model_checked = False
 
     # --- helpers -------------------------------------------------------------
+
+    @property
+    def settings(self) -> Settings:
+        """Read-only view for the HTTP layer (e.g. the upload cap)."""
+        return self._settings
 
     def _system_message(self, file_name: str, content: str) -> dict:
         return {
@@ -93,8 +124,74 @@ class CagEngine:
     def _cache_filename(document_id: int) -> str:
         return f"doc-{document_id}.bin"
 
+    def _ensure_model_marker(self) -> None:
+        """Invalidate caches when the served model changed behind our back.
+
+        llama.cpp validates a restored state file *structurally* (layer count,
+        KV types, geometry) but stores no identity of the WEIGHTS that produced
+        it — so switching between same-geometry models (a different weight
+        quant of the same repo, a fine-tune of the same base) would restore
+        stale KV state silently and answer from the wrong model's reading.
+
+        Guard: on the first successful llama interaction per process, compare
+        llama-server's /props model_path with the model.marker file next to
+        the caches. On mismatch, delete every *.bin (they self-heal on next
+        use) and write the new marker. Called under _lock, before any restore
+        or warm touches a slot. If llama-server is down the check is simply
+        deferred to the next interaction — never an error.
+        """
+        if self._model_checked:
+            return
+        try:
+            props = self._llama.props()
+        except LlamaError:
+            return  # llama down/unreachable — retry on the next interaction
+        identity = str(props.get("model_path") or "").strip()
+        if not identity:
+            # /props no longer exposes model_path (upstream change?): we cannot
+            # fingerprint, so fail open — but say so once, loudly.
+            logger.warning(
+                "llama-server /props has no model_path; cannot verify cached KV "
+                "state belongs to the current model. Restores of stale caches "
+                "after a same-geometry model switch would go undetected."
+            )
+            self._model_checked = True
+            return
+
+        marker = self._settings.cache_dir / "model.marker"
+        previous: str | None = None
+        if marker.exists():
+            try:
+                previous = marker.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                logger.warning("Could not read model marker: %s", exc)
+
+        if previous is not None and previous != identity:
+            removed = 0
+            for path in self._settings.cache_dir.glob("*.bin"):
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError as exc:
+                    logger.warning("Could not remove stale cache %s: %s", path, exc)
+            logger.warning(
+                "Model changed (%s -> %s): invalidated %s cache file(s); "
+                "they re-warm themselves on next use.",
+                previous, identity, removed,
+            )
+        try:
+            marker.write_text(identity, encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Could not write model marker: %s", exc)
+            return  # leave unchecked so a later interaction retries
+        self._model_checked = True
+
     def _token_limit(self) -> int:
-        return self._settings.slot_ctx_size - self._settings.answer_reserve_tokens
+        return (
+            self._settings.slot_ctx_size
+            - self._settings.answer_reserve_tokens
+            - self._settings.prompt_overhead_tokens
+        )
 
     def _slot_for(self, document_id: int) -> tuple[int, bool]:
         """Slot assignment: the doc's current slot, else a free one, else LRU."""
@@ -130,6 +227,20 @@ class CagEngine:
             )
 
         doc = self._db.insert_document(_slugify(file_name), file_name, text, sha256)
+        if doc is None:
+            # Lost a concurrent-insert race on content_sha256: the winner's row
+            # exists now — hand it back exactly like the normal dedupe path.
+            existing = self._db.find_by_sha256(sha256)
+            if existing is None:
+                raise RuntimeError(
+                    "Concurrent ingest of identical content conflicted, but the "
+                    "winning row is already gone (deleted immediately?). Retry the ingest."
+                )
+            logger.info(
+                "Ingest of %s lost an insert race; deduplicated to document %s",
+                file_name, existing["id"],
+            )
+            return {**existing, "deduplicated": True}
         try:
             warm = self._warm(doc["id"], file_name, text)
         except LlamaError as exc:
@@ -143,6 +254,7 @@ class CagEngine:
         """Fill the assigned slot with the document's KV state, persist to disk."""
         started = time.monotonic()
         with self._lock:
+            self._ensure_model_marker()
             slot, _ = self._slot_for(document_id)
             try:
                 self._llama.slot_erase(slot)
@@ -160,8 +272,9 @@ class CagEngine:
                 warm=True,
             )
             self._llama.slot_save(self._cache_filename(document_id), slot)
-            self._slots[slot] = document_id
-            self._slot_used[slot] = time.monotonic()
+            with self._slots_guard:
+                self._slots[slot] = document_id
+                self._slot_used[slot] = time.monotonic()
         warm_ms = int((time.monotonic() - started) * 1000)
         logger.info("Warmed document %s into slot %s in %sms", document_id, slot, warm_ms)
         return {"warm_ms": warm_ms}
@@ -175,6 +288,7 @@ class CagEngine:
         max_tokens: int | None = None,
         temperature: float | None = None,
         history: list[dict] | None = None,
+        json_schema: dict | None = None,
     ) -> dict:
         if document_id is not None:
             doc = self._db.get_document(document_id, with_content=True)
@@ -194,12 +308,40 @@ class CagEngine:
         )
         started = time.monotonic()
 
+        # Long conversations must still fit the slot: trim the OLDEST turns
+        # first until document + history + question fit the estimated budget.
+        # The current question is never trimmed.
+        history = list(history) if history else []
+        history_trimmed = 0
+        if history:
+            budget = (
+                self._settings.slot_ctx_size
+                - (doc.get("n_tokens") or 0)
+                - self._settings.answer_reserve_tokens
+                - self._settings.prompt_overhead_tokens
+            )
+            used = _estimate_turn_tokens(question) + sum(
+                _estimate_turn_tokens(turn.get("content", "")) for turn in history
+            )
+            while history and used > budget:
+                dropped = history.pop(0)
+                used -= _estimate_turn_tokens(dropped.get("content", ""))
+                history_trimmed += 1
+            if history_trimmed:
+                logger.info(
+                    "Trimmed %s oldest history turn(s) to fit document %s's slot budget",
+                    history_trimmed, doc["id"],
+                )
+
         # History sits between the (cached) document prefix and the new
         # question; identical earlier turns are prefix-matched in the KV cache,
         # so each round only evaluates the newest exchange.
+        # NOTE: json_schema constrains sampling only — it is passed to chat()
+        # below, never folded into a message, so the system prefix stays
+        # byte-identical and the KV cache is reused exactly as before.
         messages = [
             self._system_message(doc["file_name"], doc["content"]),
-            *(history or []),
+            *history,
             {"role": "user", "content": question},
         ]
         try:
@@ -212,9 +354,8 @@ class CagEngine:
                     temperature=temperature,
                     slot_id=slot,
                     warm=healed,  # recomputing a full prefix deserves the long timeout
+                    json_schema=json_schema,
                 )
-                if healed:
-                    self._resave(doc, slot)
         except LlamaError as exc:
             self._db.log_query(
                 document_id=doc["id"], question=question, answer=None,
@@ -222,6 +363,11 @@ class CagEngine:
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
             raise
+        if healed:
+            # Deferred self-heal: answer now, persist in the background. The
+            # deferred body re-takes the lock and re-validates the slot still
+            # holds this document before saving.
+            self._schedule_resave(doc, slot)
 
         duration_ms = int((time.monotonic() - started) * 1000)
         timings = result["timings"]
@@ -237,6 +383,19 @@ class CagEngine:
             n_eval_tokens=timings.get("prompt_n"),
             duration_ms=duration_ms,
         )
+        timings_out = {
+            "prompt_tokens_evaluated": timings.get("prompt_n"),
+            "prompt_tokens_from_cache": timings.get("cache_n"),
+            "answer_tokens": timings.get("predicted_n"),
+            # "memory": doc was already hot; "disk": KV state restored from
+            # its cache file; "recomputed": self-heal path, prefix was
+            # re-evaluated (and re-saved) because no usable cache existed.
+            "cache_source": cache_source,
+        }
+        if history_trimmed:
+            # Present only when trimming occurred: how many oldest turns were
+            # dropped to fit the slot budget.
+            timings_out["history_trimmed"] = history_trimmed
         return {
             "answer": result["content"],
             "document": {
@@ -245,15 +404,7 @@ class CagEngine:
                 "n_tokens": doc["n_tokens"],
             },
             "duration_ms": duration_ms,
-            "timings": {
-                "prompt_tokens_evaluated": timings.get("prompt_n"),
-                "prompt_tokens_from_cache": timings.get("cache_n"),
-                "answer_tokens": timings.get("predicted_n"),
-                # "memory": doc was already hot; "disk": KV state restored from
-                # its cache file; "recomputed": self-heal path, prefix was
-                # re-evaluated (and re-saved) because no usable cache existed.
-                "cache_source": cache_source,
-            },
+            "timings": timings_out,
         }
 
     def _make_hot(self, doc: dict) -> tuple[int, str]:
@@ -262,15 +413,18 @@ class CagEngine:
         Returns (slot_id, source) where source is "memory" (already hot),
         "disk" (restored from its cache file), or "recomputed" (the completion
         itself must re-evaluate the prefix)."""
+        self._ensure_model_marker()
         slot, already_hot = self._slot_for(doc["id"])
-        self._slot_used[slot] = time.monotonic()
+        with self._slots_guard:
+            self._slot_used[slot] = time.monotonic()
         if already_hot:
             return slot, "memory"
 
-        evicted = self._slots.get(slot)
+        with self._slots_guard:
+            evicted = self._slots.get(slot)
+            self._slots[slot] = doc["id"]
         if evicted is not None:
             logger.info("Evicting document %s from slot %s (LRU)", evicted, slot)
-        self._slots[slot] = doc["id"]
 
         cache_file = doc.get("cache_file")
         if cache_file and (self._settings.cache_dir / cache_file).exists():
@@ -289,12 +443,47 @@ class CagEngine:
             )
         return slot, "recomputed"
 
+    def _schedule_resave(self, doc: dict, slot: int) -> None:
+        """Run the self-heal re-save via self._spawn so the healed query's
+        response doesn't also pay for slot_save.
+
+        The deferred body acquires the big lock, re-checks under the slots
+        guard that the slot still holds this document (another query may have
+        evicted it meanwhile — then the NEXT heal retries), and only then
+        saves. Nothing raised inside it ever propagates."""
+
+        def deferred() -> None:
+            try:
+                with self._lock:
+                    with self._slots_guard:
+                        current = self._slots.get(slot)
+                    if current != doc["id"]:
+                        logger.info(
+                            "Deferred re-save skipped: slot %s now holds %s, not %s",
+                            slot, current, doc["id"],
+                        )
+                        return
+                    self._resave(doc, slot)
+            except Exception:  # deferred work must never propagate
+                logger.exception("Deferred re-save for document %s failed", doc["id"])
+
+        self._spawn(deferred)
+
     def _resave(self, doc: dict, slot: int) -> None:
         """Self-heal: persist the freshly recomputed KV state for next time."""
         try:
             n_tokens = doc.get("n_tokens") or self._llama.count_tokens(doc["content"])
-            self._llama.slot_save(self._cache_filename(doc["id"]), slot)
-            self._db.mark_cached(doc["id"], n_tokens, self._cache_filename(doc["id"]))
+            cache_file = self._cache_filename(doc["id"])
+            self._llama.slot_save(cache_file, slot)
+            if not self._db.mark_cached(doc["id"], n_tokens, cache_file):
+                # The document was deleted while we were recomputing. Don't
+                # strand a cache file no DB row points at — undo the save.
+                (self._settings.cache_dir / cache_file).unlink(missing_ok=True)
+                logger.info(
+                    "Document %s vanished during self-heal; removed its re-saved cache file",
+                    doc["id"],
+                )
+                return
             logger.info("Re-saved cache for document %s from slot %s", doc["id"], slot)
         except LlamaError as exc:
             logger.warning("Could not re-save cache for document %s: %s", doc["id"], exc)
@@ -315,13 +504,15 @@ class CagEngine:
             except OSError as exc:
                 logger.warning("Could not delete cache file %s: %s", path, exc)
         with self._lock:
-            for slot, hot_id in list(self._slots.items()):
-                if hot_id == document_id:
-                    try:
-                        self._llama.slot_erase(slot)
-                    except LlamaError:
-                        pass
-                    del self._slots[slot]
+            with self._slots_guard:
+                doomed = [s for s, hot_id in self._slots.items() if hot_id == document_id]
+            for slot in doomed:
+                try:
+                    self._llama.slot_erase(slot)  # I/O — the guard is not held here
+                except LlamaError:
+                    pass
+                with self._slots_guard:
+                    self._slots.pop(slot, None)
                     self._slot_used.pop(slot, None)
         return True
 
@@ -330,9 +521,20 @@ class CagEngine:
         known = self._db.all_cache_files()
         on_disk = {p.name: p for p in self._settings.cache_dir.glob("*.bin")}
 
-        orphans_removed, orphans_failed = [], []
+        now = time.time()
+        orphans_removed, orphans_failed, skipped_recent = [], [], []
         for name, path in sorted(on_disk.items()):
             if name in known:
+                continue
+            try:
+                age_s = now - path.stat().st_mtime
+            except OSError:
+                continue  # vanished mid-scan — nothing left to clean
+            if age_s < self._settings.maintenance_grace_s:
+                # Too young to be a confirmed orphan: an ingest or self-heal
+                # may still be in flight and its DB row not visible yet.
+                # Report it, don't delete it.
+                skipped_recent.append(name)
                 continue
             try:
                 path.unlink()
@@ -352,6 +554,7 @@ class CagEngine:
         return {
             "orphan_files_removed": orphans_removed,
             "orphan_files_failed": orphans_failed,
+            "skipped_recent": skipped_recent,
             "missing_cache_files": missing,
             "cache_files": len(on_disk) - len(orphans_removed),
             "cache_bytes": cache_bytes,
@@ -359,10 +562,12 @@ class CagEngine:
         }
 
     def health(self) -> dict:
-        # Snapshot the slot map under the lock: a concurrent query/ingest/delete
-        # mutates self._slots, and iterating it live would raise "dictionary
-        # changed size during iteration" and 500 the health endpoint.
-        with self._lock:
+        # Snapshot the slot map under the micro-guard, NOT the big lock: a
+        # long generation can hold _lock for minutes, and health must answer
+        # promptly regardless. The guard alone is enough — every slot-map
+        # mutation happens inside it, so the snapshot can never observe a
+        # mid-mutation dict ("dictionary changed size during iteration").
+        with self._slots_guard:
             hot = dict(sorted(self._slots.items()))
         report: dict = {
             "status": "ok",

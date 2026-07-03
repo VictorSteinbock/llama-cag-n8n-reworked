@@ -5,7 +5,7 @@ its methods with a stubbed _one and assert the parameterized-SQL behaviour that
 matters — here, that log_query survives a document being deleted mid-query.
 """
 
-from psycopg.errors import ForeignKeyViolation
+from psycopg.errors import ForeignKeyViolation, UniqueViolation
 
 from app.db import Database
 
@@ -53,6 +53,29 @@ def test_log_query_retries_with_null_when_document_deleted_mid_query():
     assert seen[1][0] is None  # retry used NULL
     # The rest of the payload is preserved on the retry.
     assert seen[0][1:] == seen[1][1:]
+
+
+def test_insert_document_returns_none_on_unique_violation():
+    # Two concurrent ingests of identical content: the loser's INSERT trips the
+    # content_sha256 UNIQUE constraint. That is a dedupe signal, not an error —
+    # insert_document reports it as None so the engine can re-fetch the winner.
+    db = _db()
+
+    def one(sql, params=()):
+        raise UniqueViolation("documents_content_sha256_key")
+
+    db._one = one
+    assert db.insert_document("slug", "f.txt", "content", "sha") is None
+
+
+def test_mark_cached_reports_whether_a_row_was_updated():
+    db = _db()
+
+    db._one = lambda sql, params=(): {"id": 7}
+    assert db.mark_cached(7, 100, "doc-7.bin") is True
+
+    db._one = lambda sql, params=(): None  # row deleted mid-warm/heal
+    assert db.mark_cached(7, 100, "doc-7.bin") is False
 
 
 def test_log_query_null_document_fk_violation_is_not_swallowed():

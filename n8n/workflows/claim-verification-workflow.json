@@ -1,0 +1,273 @@
+{
+  "name": "CAG Claim Verification",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CAG Claim Verification\n\nVerify a list of claims against ONE warm document. Each claim is checked with `temperature: 0` and a `json_schema`, so every verdict comes back as strict JSON — `supported`, `absent`, or `contradicted`, with the exact passage. The document is read once (already cached); each claim only costs its own tokens.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/verify \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"document_id\": 7,\n        \"claims\": [\n          \"The peak current limit is 12 A.\",\n          \"Thermal shutdown triggers at 150 C.\",\n          \"The warranty covers water damage.\"\n        ]\n      }'\n```\n\n`document_id` is optional — omit it to verify against the most recently cached document.\nThe response is an array of `{claim, verdict, quote, cache_source, error}`.\nOne failing claim is captured (error branch) and does not abort the batch.\n\nThis is the productized critique loop: a drafting agent (Claude Code, or anything) posts its claims here, reads the verdicts, and refines before shipping.\n\nNo credentials needed — cag-api does all the work.",
+        "height": 540,
+        "width": 460
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000001",
+      "name": "How to use",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-320, -220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cag/verify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000002",
+      "name": "Verify Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "webhookId": "7c2dae3f-5b4a-4c9d-ae1f-2a3b4c5d6e7f"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.claims",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "claim"
+        }
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000003",
+      "name": "Split Claims",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://cag-api:8000/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ question: 'Verify this claim strictly against the document: \"' + $json.claim + '\". Respond with your verdict and the exact supporting or contradicting passage.', temperature: 0, document_id: $json.body.document_id, json_schema: { type: 'object', properties: { claim: { type: 'string' }, verdict: { enum: ['supported', 'absent', 'contradicted'] }, quote: { type: 'string' } }, required: ['claim', 'verdict', 'quote'] } }) }}",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000004",
+      "name": "Verify Against CAG API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "verify-ok-1",
+              "name": "claim",
+              "value": "={{ $('Split Claims').item.json.claim }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-ok-2",
+              "name": "verdict",
+              "value": "={{ (() => { try { return JSON.parse($json.answer).verdict } catch (e) { return null } })() }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-ok-3",
+              "name": "quote",
+              "value": "={{ (() => { try { return JSON.parse($json.answer).quote } catch (e) { return null } })() }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-ok-4",
+              "name": "cache_source",
+              "value": "={{ $json.timings?.cache_source }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-ok-5",
+              "name": "error",
+              "value": "={{ null }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000005",
+      "name": "Collect Verdict",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, -100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "verify-err-1",
+              "name": "claim",
+              "value": "={{ $('Split Claims').item.json.claim }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-err-2",
+              "name": "verdict",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-err-3",
+              "name": "quote",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-err-4",
+              "name": "cache_source",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-err-5",
+              "name": "error",
+              "value": "={{ $json.error?.message ?? $json.error ?? 'CAG API request failed' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000006",
+      "name": "Mark Failure",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 120]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateIndividualFields",
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "claim"
+            },
+            {
+              "fieldToAggregate": "verdict"
+            },
+            {
+              "fieldToAggregate": "quote"
+            },
+            {
+              "fieldToAggregate": "cache_source"
+            },
+            {
+              "fieldToAggregate": "error"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000007",
+      "name": "Aggregate Verdicts",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1220, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "e5f84a51-0000-4000-8000-000000000008",
+      "name": "Respond With Verdicts",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1480, 0]
+    }
+  ],
+  "connections": {
+    "Verify Webhook": {
+      "main": [
+        [
+          {
+            "node": "Split Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Claims": {
+      "main": [
+        [
+          {
+            "node": "Verify Against CAG API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Against CAG API": {
+      "main": [
+        [
+          {
+            "node": "Collect Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Verdict": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Verdicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Failure": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Verdicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Verdicts": {
+      "main": [
+        [
+          {
+            "node": "Respond With Verdicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}

@@ -12,9 +12,18 @@ Everything here is three `.env` knobs plus a model choice:
 | Knob | What it buys | Cost |
 |------|--------------|------|
 | `LLAMA_MODEL` | answer quality; max context the model even supports | download size + weights in memory |
-| `LLAMA_CTX_SIZE` | how many tokens fit (per document = `ctx ÷ slots − 1024`) | KV-cache memory (see the arithmetic below) |
+| `LLAMA_CTX_SIZE` | how many tokens fit (per document = `ctx ÷ slots − 1120`: 1024 answer + 96 prompt head-room) | KV-cache memory (see the arithmetic below) |
 | `CAG_SLOTS` | how many documents stay **hot in RAM** at once | divides the context; each slot shrinks |
 | `LLAMA_CACHE_TYPE_KV` | `q8_0` halves KV memory vs `f16` | negligible quality hit at `q8_0` |
+
+**Sizing rule for `CAG_SLOTS`:** if concurrent consumers alternate between more
+documents than `CAG_SLOTS`, every switch is a disk restore (an evicted document
+comes back cold) — so set `CAG_SLOTS` to at least the number of documents in
+active rotation, memory permitting, since each slot only gets
+`LLAMA_CTX_SIZE ÷ CAG_SLOTS` tokens. And remember slots parallelize
+*residency*, not generation: inference is serialized through the engine, so a
+long warm on one slot delays queries on every other — schedule big ingests
+off-peak.
 
 Change a model or quant and existing caches self-heal (recompute + re-save) on
 their next query — see [ARCHITECTURE.md](ARCHITECTURE.md).

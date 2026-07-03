@@ -54,6 +54,24 @@ class LlamaClient:
             raise LlamaError(f"llama-server unhealthy: {response.text[:200]}")
         return response.json()
 
+    def props(self) -> dict:
+        """GET /props — server metadata; ``model_path`` identifies the loaded GGUF.
+
+        The engine uses that as the model fingerprint for cache invalidation:
+        llama.cpp's sequence-state files carry no identity of the weights that
+        produced them, so a same-geometry model switch would otherwise restore
+        stale KV state silently.
+        """
+        try:
+            response = self._client.get("/props", timeout=self._health_timeout)
+        except httpx.HTTPError as exc:
+            raise LlamaError(f"llama-server unreachable (/props): {exc}") from exc
+        if response.status_code >= 400:
+            raise LlamaError(
+                f"llama-server /props returned {response.status_code}: {response.text[:200]}"
+            )
+        return response.json()
+
     def count_tokens(self, text: str) -> int:
         data = self._post("/tokenize", {"content": text}, timeout=self._warm_timeout)
         return len(data.get("tokens", []))
@@ -66,12 +84,20 @@ class LlamaClient:
         temperature: float,
         slot_id: int = 0,
         warm: bool = False,
+        json_schema: dict | None = None,
     ) -> dict:
         """One chat completion pinned to a slot, with prompt caching on.
 
         Returns {"content", "timings", "usage"}. timings.prompt_n is the number
         of prompt tokens actually evaluated — near zero on a cache hit, which is
         the whole point of this project.
+
+        When ``json_schema`` is given, the completion is constrained to emit
+        JSON matching it. llama-server's OpenAI-compatible endpoint takes this as
+        ``response_format: {"type": "json_schema", "schema": {...}}`` (see the
+        server README's ``response_format`` note); it drives grammar-based
+        sampling only and never alters the messages, so the cached prefix is
+        untouched.
         """
         payload = {
             "messages": messages,
@@ -82,6 +108,8 @@ class LlamaClient:
             "cache_prompt": True,
             "timings_per_token": False,
         }
+        if json_schema is not None:
+            payload["response_format"] = {"type": "json_schema", "schema": json_schema}
         timeout = self._warm_timeout if warm else self._query_timeout
         data = self._post("/v1/chat/completions", payload, timeout=timeout)
         try:

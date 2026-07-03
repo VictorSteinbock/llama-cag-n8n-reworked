@@ -105,10 +105,18 @@ Two invariants make the prefix reuse work:
    document part is still an identical prefix, reuse still covers ~all document tokens —
    only the few tokens after the document diverge.
 
-**Self-healing:** if `action=restore` fails (file deleted, corrupt, incompatible after a
-model change), the API logs it and proceeds anyway — `cache_prompt` recomputes the full
-prefix (slow, correct) and the API re-saves the slot so the next query is fast again.
-A model/quant change invalidates all caches; they heal the same way on next use.
+**Self-healing:** if `action=restore` fails (file deleted, corrupt, structurally
+incompatible after a model change), the API logs it and proceeds anyway —
+`cache_prompt` recomputes the full prefix (slow, correct) and the API re-saves the
+slot so the next query is fast again (deferred, off the request path).
+
+**Model fingerprint:** llama.cpp validates a restored state file *structurally*
+(layer count, KV types, geometry) but stores no identity of the weights that
+produced it — a same-geometry switch (different weight quant, a fine-tune of the
+same base) would restore stale KV state **silently**. cag-api closes that hole:
+on its first llama interaction per process it compares `/props` `model_path`
+against a `model.marker` file beside the caches, and on mismatch wipes all
+`*.bin` once (they re-warm on next use) and rewrites the marker.
 
 ## Data model (`llamacag` database)
 
@@ -131,8 +139,21 @@ removed with the RAG-ish "query multiple caches" path (see PRD non-goals).
   (question string → `subprocess` with `shell=True`) is structurally impossible now.
 - **Parameterized SQL only** (psycopg 3).
 - **One lock around slot use.** Slot assignment + restore + completion is atomic per
-  query; concurrent webhook calls queue. CPU inference is serial anyway.
+  query; concurrent webhook calls queue. CPU inference is serial anyway. There is
+  deliberately no request semaphore or queue limit: inference is serialized by the
+  engine lock and concurrent consumers simply queue on it (bounded by FastAPI's
+  threadpool), which is correct for a single-user loopback stack. A second,
+  momentary micro-lock (`_slots_guard`) covers only the slot-map dicts so
+  `/health` can snapshot them without queueing behind a long generation — writers
+  take it nested inside the big lock, and it is never held across I/O.
 - **Timeouts everywhere:** warm 60 min, query 10 min (CPU worst cases), health 5 s.
+
+**Deferred design: per-slot concurrency.** Per-slot inference locking (letting two
+slots generate at once) was considered and deferred: LRU slot eviction under
+concurrent slot use would break the restore + completion atomicity invariant, CPU
+inference gains nothing from it (the same cores serve both generations), and the
+single-user PRD target doesn't need it. Revisit as a designed milestone if a
+multi-user GPU deployment ever becomes a goal — not as a patch.
 
 ## Configuration
 
@@ -162,3 +183,4 @@ GPU: `python llamacag.py start --gpu` layers `docker-compose.gpu.yml` on top (CU
 | Cache file missing | Query self-heals (recompute + re-save); maintenance flags it |
 | Document too large | 413 at ingest with the measured token count and the knob to change |
 | Same file dropped twice | 200, `deduplicated: true`, no re-warm |
+| Client disconnects mid-query | The worker thread completes normally (generation is bounded by `max_tokens`, locks are released by context managers, httpx timeouts are the hard ceiling), the response is discarded, and the answer still lands in `query_log` — a "zombie lock" is structurally impossible |

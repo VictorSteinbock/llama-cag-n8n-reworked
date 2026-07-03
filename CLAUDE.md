@@ -31,10 +31,17 @@ docker compose config -q             # validate compose (requires .env or env va
   cache file an error.
 - **No shell execution, parameterized SQL only** (v1 had command injection;
   don't reintroduce process spawning in the request path).
-- Slot use is serialized by `CagEngine._lock`; slot assignment (LRU map in
-  `_slots`/`_slot_used`) + restore + completion must stay atomic. Per-document
-  size limit is `LLAMA_CTX_SIZE / CAG_SLOTS − reserve` — llama-server divides
-  context across `--parallel` slots.
+- Two locks, two jobs: `_lock` serializes slot USE (assignment + restore +
+  completion stay atomic); `_slots_guard` is a momentary micro-lock for
+  slot-map visibility (`_slots`/`_slot_used`) so `health()` never queues behind
+  a generation — writers take it nested inside `_lock`, and it is never held
+  across I/O. Per-document size limit is
+  `LLAMA_CTX_SIZE / CAG_SLOTS − answer_reserve − prompt_overhead` — llama-server
+  divides context across `--parallel` slots.
+- The `model.marker` file in cache_dir guards against silent stale-KV restores
+  after same-geometry model switches (llama.cpp validates state files
+  structurally but stores no weight identity — verified upstream). Don't remove
+  the lazy `_ensure_model_marker` check.
 - Model/context defaults live in THREE places that must agree: `.env.example`,
   the `${VAR:-default}` fallbacks in all docker-compose*.yml files, and
   `api/app/config.py`. The compose GPU/Vulkan overrides replace the llama

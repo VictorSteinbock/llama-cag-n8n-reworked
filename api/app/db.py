@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from psycopg.errors import ForeignKeyViolation
+from psycopg.errors import ForeignKeyViolation, UniqueViolation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -38,15 +38,22 @@ class Database:
 
     # --- documents ----------------------------------------------------------
 
-    def insert_document(self, slug: str, file_name: str, content: str, sha256: str) -> dict:
-        return self._one(
-            f"""
-            INSERT INTO documents (slug, file_name, content, content_sha256)
-            VALUES (%s, %s, %s, %s)
-            RETURNING {DOCUMENT_COLUMNS}
-            """,
-            (slug, file_name, content, sha256),
-        )
+    def insert_document(self, slug: str, file_name: str, content: str, sha256: str) -> dict | None:
+        try:
+            return self._one(
+                f"""
+                INSERT INTO documents (slug, file_name, content, content_sha256)
+                VALUES (%s, %s, %s, %s)
+                RETURNING {DOCUMENT_COLUMNS}
+                """,
+                (slug, file_name, content, sha256),
+            )
+        except UniqueViolation:
+            # A concurrent request inserted identical content between the
+            # caller's find_by_sha256 check and this INSERT (content_sha256 is
+            # UNIQUE). None tells the caller to re-fetch and dedupe instead of
+            # surfacing a 500.
+            return None
 
     def find_by_sha256(self, sha256: str) -> dict | None:
         return self._one(
@@ -71,16 +78,21 @@ class Database:
     def list_documents(self) -> list[dict]:
         return self._all(f"SELECT {DOCUMENT_COLUMNS} FROM documents ORDER BY id")
 
-    def mark_cached(self, document_id: int, n_tokens: int, cache_file: str) -> None:
-        self._one(
-            """
-            UPDATE documents
-            SET status = 'cached', n_tokens = %s, cache_file = %s,
-                cached_at = now(), error = NULL
-            WHERE id = %s
-            RETURNING id
-            """,
-            (n_tokens, cache_file, document_id),
+    def mark_cached(self, document_id: int, n_tokens: int, cache_file: str) -> bool:
+        """True if a row was updated; False means the document no longer exists
+        (deleted while the caller was warming/recomputing)."""
+        return (
+            self._one(
+                """
+                UPDATE documents
+                SET status = 'cached', n_tokens = %s, cache_file = %s,
+                    cached_at = now(), error = NULL
+                WHERE id = %s
+                RETURNING id
+                """,
+                (n_tokens, cache_file, document_id),
+            )
+            is not None
         )
 
     def mark_failed(self, document_id: int, error: str) -> None:

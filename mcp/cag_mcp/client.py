@@ -73,10 +73,13 @@ class CagClient:
         *,
         document_id: int | None = None,
         max_tokens: int = 1024,
+        json_schema: dict | None = None,
     ) -> dict:
         payload: dict[str, object] = {"question": question, "max_tokens": max_tokens}
         if document_id is not None:
             payload["document_id"] = document_id
+        if json_schema is not None:
+            payload["json_schema"] = json_schema
         return self._request("POST", "/query", json=payload)
 
     def ingest_text(self, file_name: str, text: str) -> dict:

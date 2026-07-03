@@ -16,6 +16,20 @@ class Settings(BaseSettings):
     cag_slots: int = 1
     # Context head-room kept free for the question + generated answer.
     answer_reserve_tokens: int = 1024
+    # Additional head-room for what surrounds the raw document text in the
+    # prompt: the SYSTEM_TEMPLATE wrapper, chat-template framing, and the
+    # question turn. Subtracted from the per-slot document limit alongside
+    # answer_reserve_tokens.
+    prompt_overhead_tokens: int = 96
+    # Orphaned cache files younger than this are skipped (reported, not
+    # deleted) by maintenance — a file with no DB row yet may simply be an
+    # ingest or self-heal still in flight.
+    maintenance_grace_s: int = 3600
+    # Server-side cap for POST /documents uploads. Mirrors the MCP client's
+    # 50 MB client-side guard (MAX_FILE_BYTES in mcp/cag_mcp/server.py) so both
+    # ends of that path agree; the HTTP route reads uploads in chunks and stops
+    # at this cap instead of buffering an unbounded body.
+    max_upload_mb: int = 50
 
     # Same volume llama-server writes slot files into (--slot-save-path).
     cache_dir: Path = Path("/caches")

@@ -51,6 +51,7 @@ services:
       # extractive answers — see "Running it as a dedicated chatbot" in README.
       - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.2}
       - DEFAULT_MAX_ANSWER_TOKENS=${DEFAULT_MAX_ANSWER_TOKENS:-1024}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
       - CACHE_DIR=/caches
       - DB_HOST=db
       - DB_PORT=5432

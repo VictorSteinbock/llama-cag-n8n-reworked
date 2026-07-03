@@ -50,11 +50,44 @@ def test_unsupported_upload_is_415(client):
     assert response.status_code == 415
 
 
+@pytest.fixture
+def tiny_upload_client(fake_llama, fake_db, tmp_path):
+    # Same wiring as the main client, but with a 1 MB upload cap so the
+    # oversize path is testable without a 50 MB body.
+    from app.cag import CagEngine
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", max_upload_mb=1,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    with TestClient(create_app(engine=engine)) as test_client:
+        yield test_client
+
+
+def test_oversized_upload_is_413_naming_the_knob(tiny_upload_client):
+    big = b"x" * (1024 * 1024 + 1)  # one byte over the 1 MB cap
+    response = tiny_upload_client.post(
+        "/documents", files={"file": ("big.txt", big, "text/plain")}
+    )
+    assert response.status_code == 413
+    assert "MAX_UPLOAD_MB" in response.json()["detail"]
+
+
+def test_upload_under_cap_is_unaffected(tiny_upload_client):
+    response = tiny_upload_client.post(
+        "/documents", files={"file": ("ok.txt", b"small file body", "text/plain")}
+    )
+    assert response.status_code == 201
+
+
 def test_too_large_document_is_413(client, fake_llama):
     fake_llama.tokens_per_text = 5000
     response = client.post("/documents/text", json={"text": "x" * 100})
     assert response.status_code == 413
-    assert response.json()["limit"] == 900
+    # 1000 ctx − 100 answer reserve − 96 prompt overhead
+    assert response.json()["limit"] == 804
 
 
 def test_query_with_no_documents_is_409(client):
@@ -78,6 +111,29 @@ def test_query_validation_is_422(client):
     assert (
         client.post("/query", json={"question": "q", "history": bad_role}).status_code == 422
     )
+
+
+def test_query_accepts_json_schema(client, fake_llama):
+    client.post("/documents/text", json={"text": "Fredville is the capital."})
+    schema = {
+        "type": "object",
+        "properties": {"verdict": {"type": "string"}},
+        "required": ["verdict"],
+    }
+    response = client.post(
+        "/query", json={"question": "What is the capital?", "json_schema": schema}
+    )
+    assert response.status_code == 200
+    # The schema reached the llama layer unchanged (sampling-only passthrough).
+    assert fake_llama.last_json_schema == schema
+
+
+def test_query_rejects_non_object_json_schema_with_422(client):
+    client.post("/documents/text", json={"text": "something"})
+    response = client.post(
+        "/query", json={"question": "q", "json_schema": "not-an-object"}
+    )
+    assert response.status_code == 422
 
 
 def test_query_accepts_conversation_history(client):
