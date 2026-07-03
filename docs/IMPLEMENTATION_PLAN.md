@@ -4,7 +4,8 @@ This document is the **build-ready** consolidation of the roadmap's Ready featur
 ([docs/ROADMAP.md](ROADMAP.md) F1–F6, F9, F10), deepened from medium specs into
 plans a multi-agent build can execute directly. It is written to be **human-reviewed
 first, then executed on a single feature branch** (`feat/oracle-hardening-and-webui`)
-by parallel agents, and finally merged to `main` as one coherent capability jump.
+as sequential per-feature commits (verification agents fan out between commits — §7),
+and finally merged to `main` as one coherent capability jump.
 Every feature here is grounded in the actual code paths it touches — the file/line
 anchors, function signatures, and response shapes are read from the tree, not assumed.
 Read [CLAUDE.md](../CLAUDE.md) and [docs/ARCHITECTURE.md](ARCHITECTURE.md) before
@@ -28,9 +29,12 @@ it remembers" moment lands in under a minute (F10).
 zero extra LLM calls), and a non-technical user can `start` the stack, open a browser,
 drag in a document, chat with it, and verify claims — with nothing installed.
 
-**Total effort:** ~8–11 focused dev-days serialized; ~4–5 calendar-days across 3–4
-parallel agent lanes. No new runtime dependency is added by any feature; every change is
-additive to the API; the KV-cache-reuse invariant is respected by construction.
+**Total effort:** ~8–11 focused dev-days, built as sequential self-green commits —
+parallelism belongs to verification fan-out, not construction (§7). No new runtime
+dependency is added by any feature; every change is additive to the API; the
+KV-cache-reuse invariant is respected by construction. The F4/F5 optional DB columns and
+their migrations are **deferred to a follow-up PR** (§11 decision 2) — nothing under
+`database/migrations/` ships here.
 
 ## 3. Scope
 
@@ -78,7 +82,10 @@ doesn't touch the surface).
 
 **n8n node whitelist:** webhook, httpRequest 4.2, set 3.4, splitOut, aggregate,
 respondToWebhook, scheduleTrigger, localFileTrigger, readWriteFile, stickyNote. **No**
-Code / Function / Cron / ExecuteCommand.
+Code / Function / Cron / ExecuteCommand. This list supersedes CLAUDE.md's shorter
+convention line (`splitOut`/`aggregate` already ship in
+`claim-verification-workflow.json`); F1's commit also appends `splitOut, aggregate` to
+CLAUDE.md's convention line.
 
 ## 5. Table of contents
 
@@ -92,11 +99,14 @@ schema is defined **once** in F1 and referenced everywhere else.
 - [Phase 2 — F2: answer-gating pattern + fail-safe gate](#phase-2--f2--answer-gating-pattern--fail-safe-gate)
 - [Phase 2 — F9: zero-install web UI (served at `/ui`)](#phase-2--f9--zero-install-web-ui-served-at-ui)
 - [Phase 3 — F10: sample documents + guided first-run](#phase-3--f10--sample-documents--guided-first-run)
+- [Phase 4 — live verification (gates the v2.1 tag)](#phase-4--live-verification-gates-the-v21-tag)
 - [Build sequence & dependency graph](#7-build-sequence--dependency-graph)
 - [Testing & CI](#8-testing--ci)
 - [Invariants & risk register](#9-invariants--risk-register)
 - [Branch / PR / rollout strategy](#10-branch--pr--rollout-strategy)
+- [Sibling project — LlamaCagUI reconciliation](#sibling-project--llamacagui-reconciliation)
 - [For the reviewer — open decisions](#11-for-the-reviewer--open-decisions)
+  - [Review record (2026-07-03)](#review-record-2026-07-03)
 
 ---
 
@@ -129,13 +139,22 @@ the verdict schema defined here is consumed by F2 (answer-gate `pass` rule), F4
 - `api/app/cag.py` **(modified)** — add `verify_claim()`, `DEFAULT_VERDICT_SCHEMA`,
   `VERIFY_PROMPT_TEMPLATE`; add `import json`.
 - `api/app/main.py` **(modified)** — add `VerifyRequest`, `POST /verify`, list it in `index()`.
+- `docker-compose.yml` **(modified)** — `QUOTE_MATCH_THRESHOLD` in the `cag-api` environment block.
+- `.env.example` **(modified)** — commented `QUOTE_MATCH_THRESHOLD` line.
 - `n8n/workflows/claim-verification-workflow.json` **(modified)** — retarget the HTTP node
   to `/verify`; pass through `quote_grounded`, `match_ratio`, `conditions`.
+- `mcp/cag_mcp/client.py` **(modified, F1b)** — `verify(claim, document_id=None)` over `POST /verify`.
+- `mcp/cag_mcp/server.py` **(modified, F1b)** — `verify` tool rendering
+  verdict/quote/quote_grounded/match_ratio/conditions.
+- `mcp/tests/test_tools.py` **(modified, F1b)** — verify-tool cases over the existing `FakeCagApi`
+  (`mcp/tests/conftest.py`).
 - `api/tests/test_grounding.py` **(new)** — unit tests for `grounding()`.
 - `api/tests/test_cag.py` **(modified)** — engine-level `verify_claim` cases.
 - `api/tests/test_api.py` **(modified)** — `POST /verify` contract cases.
 - `api/tests/conftest.py` **(modified)** — extend `FakeLlama` with an `answer_json` mode.
 - `docs/ROADMAP.md` **(modified)** — flip F1/F3 status to shipped; keep the specs.
+- `docs/ARCHITECTURE.md` **(modified)** — endpoint list gains `POST /verify`.
+- `CLAUDE.md` **(modified)** — append `splitOut, aggregate` to the n8n convention line (§4).
 - `README.md` **(modified)** — oracle example gains `conditions` + `quote_grounded`; the
   asymmetry paragraph.
 
@@ -182,9 +201,12 @@ the single definition; F2/F4/F9 reference it by name, never redefine it:
 ```
 
 Config knob: `quote_match_threshold: float = 0.9` — paraphrase tolerance; higher = stricter
-(more fabrications caught, more honest paraphrases flagged). Pure-Python behavioral knob, so
-the three-places rule (invariant 6) does **not** apply — it is not a model/context/compose
-knob. A one-line comment in `config.py` says why.
+(more fabrications caught, more honest paraphrases flagged). Behavioral, not geometry — but
+compose's `cag-api` environment block is an **explicit allowlist**, so the env var must be
+plumbed or a `.env` setting never reaches the container: add
+`- QUOTE_MATCH_THRESHOLD=${QUOTE_MATCH_THRESHOLD:-0.9}` to `docker-compose.yml`'s `cag-api`
+block (the `DEFAULT_TEMPERATURE` precedent) plus a commented `#QUOTE_MATCH_THRESHOLD=0.9`
+line in `.env.example`.
 
 Workflow: `claim-verification-workflow.json`'s HTTP node "Verify Against CAG API" posts
 `{claim, document_id}` to `http://cag-api:8000/verify` (no hand-assembled schema — this
@@ -197,16 +219,28 @@ stickyNote only).
 
 **Implementation steps:**
 
-1. **`api/app/grounding.py`** — stdlib `difflib` + `re` only:
+1. **`api/app/grounding.py`** — stdlib `difflib` + `re` + `unicodedata` only:
    ```python
    import re
+   import unicodedata
    from difflib import SequenceMatcher
 
    _WS = re.compile(r"\s+")
+   _SHY = re.compile(r"\u00ad\s*")   # soft hyphen + the line break it wraps
+   _ZW = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))  # zero-width chars
+   _PUNCT = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"',
+                           "\u2013": "-", "\u2014": "-", "\u00a0": " "})
 
    def _normalize(text: str) -> str:
+       text = unicodedata.normalize("NFKC", text)
+       text = _SHY.sub("", text).translate(_ZW).translate(_PUNCT)
        return _WS.sub(" ", text).strip().casefold()
    ```
+   Order is load-bearing: NFKC first, then strip soft hyphens (rejoining hyphenated
+   line-breaks) and zero-widths, then the small punctuation fold (curly quotes → `'`/`"`,
+   en/em-dash → `-`, NBSP → space), and only then whitespace collapse + casefold. Without
+   this, curly quotes / em-dashes / NBSP / soft hyphens in real documents make **honest**
+   quotes miss the exact path and read as false "fabricated" flags.
    `def grounding(quote: str, content: str, *, threshold: float = 0.9) -> dict:`
    - If `not quote or not quote.strip()`: return `{"grounded": None, "match_ratio": 0.0, "method": "absent"}`.
    - `nq = _normalize(quote); nc = _normalize(content)`.
@@ -227,8 +261,8 @@ stickyNote only).
    ```python
    # Paraphrase tolerance for POST /verify's mechanical quote check: the minimum
    # difflib ratio at which a non-exact quote still counts as grounded. Higher =
-   # stricter. Behavioral-only (cag-api reads it; compose/geometry never share it),
-   # so the three-places rule does NOT apply.
+   # stricter. Behavioral (not geometry), but plumbed through docker-compose.yml's
+   # cag-api env allowlist + .env.example so setting it actually reaches the container.
    quote_match_threshold: float = 0.9
    ```
 
@@ -258,8 +292,11 @@ stickyNote only).
    - Re-fetch the document content to ground against the exact cached bytes: `query()` resolved
      which document answered (`result["document"]["id"]`); fetch
      `doc = self._db.get_document(result["document"]["id"], with_content=True)` and use
-     `doc["content"]`. (Cannot read it from `query`'s return — `_document_response` never echoes
-     content by design, main.py:186.)
+     `doc["content"]`. (Cannot read it from `query`'s return — its `document` block carries only
+     `{id, file_name, n_tokens}` by design, cag.py:399–408.) The re-fetch can race a concurrent
+     delete (`get_document` returns `dict | None`, db.py:63), so guard it:
+     `if doc is None: raise UnknownDocumentError(f"Document {result['document']['id']} was deleted")`
+     — lands on the existing 404 handler, never a 500.
    - Parse:
      ```python
      try:
@@ -327,6 +364,15 @@ stickyNote only).
    Update the sticky note's response-shape line to
    `{claim, verdict, quote, conditions, quote_grounded, match_ratio, cache_source, error}`.
 
+6. **F1b — MCP verify tool** (own commit, immediately after F1's — see §10):
+   `mcp/cag_mcp/client.py` gains `verify(claim: str, document_id: int | None = None)` posting
+   `{claim, document_id}` to `POST /verify` (same error translation as the existing calls);
+   `mcp/cag_mcp/server.py` gains a `verify` tool rendering
+   `verdict`/`quote`/`quote_grounded`/`match_ratio`/`conditions`, mirroring `ask_document`'s
+   provenance style. Tests ride the existing `FakeCagApi` (`mcp/tests/conftest.py`): happy path,
+   fabricated-quote (`quote_grounded:false` surfaces in the rendered text), and API-error passthrough,
+   in `mcp/tests/test_tools.py`.
+
 **Tests to add:**
 
 - **`api/tests/test_grounding.py`** (new, no fakes — pure function):
@@ -340,12 +386,18 @@ stickyNote only).
     `{"grounded": None, "match_ratio": 0.0, "method": "absent"}`.
   - `test_threshold_is_respected`: same paraphrase, `threshold=0.99` → `grounded False`;
     `threshold=0.5` → `True`.
+  - `test_unicode_punctuation_folds_to_exact`: content with curly quotes, an em-dash, and an
+    NBSP; the claim quote in plain ASCII (`'`, `-`, space) → `method == "exact"`,
+    `match_ratio == 1.0` (honest quotes must not read as fabricated over typography).
+  - `test_soft_hyphen_linebreak_rejoins_word`: content containing `"war\u00ad\nranty period"`;
+    quote `"warranty period"` → `method == "exact"` (the hyphenated line-break case).
   - `test_large_document_stays_fast`: 60k-word synthetic doc, quote near the end; exact path
     returns, and a fuzzy call completes well under ~2 s (`time.monotonic()` guard on the
     anchored-window bound).
 - **`api/tests/conftest.py`** (modified): `FakeLlama` gains `answer_json: str | None = None`;
   in `chat()`, `content = self.answer_json if self.answer_json is not None else self.answer`.
   Existing tests (which assert `answer == "the answer"`) are untouched (default `None`).
+  (Final composed form in §8 — F4 later layers its `scripted` lookup on top.)
 - **`api/tests/test_cag.py`** (modified, `engine`/`fake_llama`/`fake_db` fixtures):
   - `test_verify_grounded_supported`: ingest a doc containing "Fredville is the capital";
     `fake_llama.answer_json = '{"verdict":"supported","quote":"Fredville is the capital","conditions":"","claim":"..."}'`;
@@ -374,6 +426,9 @@ stickyNote only).
     `test_verify_validation_is_422` (`{}` and `{claim:""}`);
     `test_verify_non_json_is_error_not_500` (200 with `verdict=="error"`);
     `test_verify_llama_outage_is_502` (`fake_llama.chat = boom` → 502).
+  - `test_verify_doc_deleted_mid_flight_is_404`: wrap `fake_llama.chat` to delete the document
+    row from `fake_db` after answering but before the grounding re-fetch → `POST /verify` is
+    **404**, never a 500 (pins the `doc is None` guard in step 3).
 
 **Invariants & risks:**
 - **Invariant 1** — respected structurally: `verify_claim` never constructs messages; it calls
@@ -386,8 +441,10 @@ stickyNote only).
 - **Invariant 3** — inherits `query()`'s self-heal untouched; verification runs against
   `doc["content"]` (DB source of truth) regardless of cache state.
 - **Invariant 5** — `/query` unchanged; `/verify` new; the workflow gains fields, drops none.
-- **Invariant 7** — `difflib`/`re`/`json` are stdlib; no new dependency; workflow stays on
-  whitelisted nodes.
+- **Invariant 6** — `QUOTE_MATCH_THRESHOLD` lands in `config.py` + the base `docker-compose.yml`
+  `cag-api` env block + `.env.example` in the same commit (compose env is an explicit allowlist).
+- **Invariant 7** — `difflib`/`re`/`unicodedata`/`json` are stdlib; no new dependency; workflow stays
+  on whitelisted nodes.
 - **Risk — fuzzy performance on 60k tokens:** mitigated by anchored windows + `quick_ratio()`
   pre-filter + anchor-hit cap; the exact-substring fast path is O(n). `test_large_document_stays_fast`
   guards it.
@@ -402,7 +459,9 @@ stickyNote only).
 **Acceptance (done when):**
 - [ ] `api/app/grounding.py` exists; `grounding()` returns the three documented shapes; empty
   quote → `absent`; exact substring → `method "exact"`, ratio 1.0; fabricated quote → `grounded False`.
-- [ ] `Settings.quote_match_threshold` defaults to `0.9` and drives `verify_claim`'s grounding call.
+- [ ] `Settings.quote_match_threshold` defaults to `0.9` and drives `verify_claim`'s grounding call;
+  `QUOTE_MATCH_THRESHOLD` is plumbed through `docker-compose.yml`'s `cag-api` env block +
+  `.env.example` (compose env is an explicit allowlist).
 - [ ] `POST /verify` returns the full documented body; unknown doc → 404, empty stack → 409,
   llama down → 502, bad body → 422, non-JSON model answer → 200 `verdict:"error"`.
 - [ ] `verify_claim` provably reuses `query()`'s byte-identical system prefix and sends
@@ -411,8 +470,12 @@ stickyNote only).
   non-empty `conditions`, an unconditional one yields `""`.
 - [ ] `claim-verification-workflow.json` posts to `/verify`, passes through
   `quote_grounded`/`match_ratio`/`conditions` on both branches, and is valid on the CI check.
+- [ ] (F1b) `pytest mcp -q` green with the new tool: `client.verify()` posts to `/verify`; the
+  `verify` tool renders verdict/quote/quote_grounded/match_ratio/conditions.
 - [ ] `ruff check --no-cache api` clean; `pytest api -q` and `pytest mcp -q` green; no new dependency.
 - [ ] README oracle example shows `conditions` + `quote_grounded` and states the grounding asymmetry.
+- [ ] `docs/ARCHITECTURE.md` endpoint list gains `POST /verify`; `docs/ROADMAP.md` flips F1/F3;
+  `CLAUDE.md` convention line gains `splitOut, aggregate`.
 
 ---
 
@@ -426,8 +489,9 @@ estimate against a configurable cloud price — and `llamacag.py status` prints 
 so the payoff is visible from the CLI.
 
 **Effort & dependencies:** M. No hard dependency on other F#. **Shared surfaces:** F9's Stats tab
-consumes `GET /stats` (progressive — F9 works without it); establishes the "migration guidance"
-precedent F4 also uses. Uses only existing `query_log` columns for the shipped version
+consumes `GET /stats` (progressive — F9 works without it); the deferred `cache_source` column
+shares the migration blueprint with F4's deferred `reliability` column (§11 decision 2 — neither
+ships in this PR). Uses only existing `query_log` columns for the shipped version
 (`n_cached_tokens`, `n_eval_tokens`, `duration_ms`, `created_at` — all present, `schema.sql:37–41`).
 
 **Files touched:**
@@ -442,7 +506,13 @@ precedent F4 also uses. Uses only existing `query_log` columns for the shipped v
 - `api/tests/test_db.py` **(modified)** — stub-driven aggregation-shape + savings tests.
 - `api/tests/test_api.py` **(modified)** — `GET /stats` contract tests.
 - `api/tests/test_cag.py` **(modified)** — engine-wrapper pricing test.
-- **Optional follow-up (migration):** `database/migrations/001_cache_source.sql` **(new)**,
+- `api/tests/test_cli.py` **(new)** — `cmd_status` stats-hiccup guard (repo-root `sys.path` shim;
+  F6's `test_prepare.py` later reuses the same pattern).
+- `docs/ARCHITECTURE.md` **(modified)** — endpoint list gains `GET /stats` (reads existing
+  `query_log` columns; no schema change).
+- `docs/ROADMAP.md` **(modified)** — flip F5 status.
+- **DEFERRED to follow-up PR (§11 decision 2 ruling) — do not build in this branch:**
+  `database/migrations/001_cache_source.sql` **(new)**,
   `database/schema.sql` **(modified)**, `api/app/db.py` **(modified — `log_query` persists
   `cache_source`)**, `api/app/cag.py` **(modified — pass `cache_source` into `log_query`)**, README
   "Updating & maintenance" note. See the migration-ordering note in the build sequence.
@@ -580,8 +650,9 @@ precedent F4 also uses. Uses only existing `query_log` columns for the shipped v
    edit is needed there, but **confirm at build** that no `docker-compose.*.yml` redefines
    `cag-api.environment` wholesale (base compose does not; the overrides target `llama-server`).
 
-7. **Optional follow-up — `cache_source` distribution (needs migration).** Only after the
-   no-migration version ships. This closes a real gap: `cag.py:349` computes `cache_source` at query
+7. **DEFERRED to follow-up PR (§11 decision 2 ruling) — do not build in this branch.**
+   **Optional follow-up — `cache_source` distribution (needs migration).** Kept as the follow-up
+   blueprint. This closes a real gap: `cag.py:349` computes `cache_source` at query
    time but `log_query` (cag.py:376, db.py:126) does **not** persist it.
    - `database/migrations/001_cache_source.sql` **(new)** — `ALTER TABLE query_log ADD COLUMN IF
      NOT EXISTS cache_source TEXT;` with a header explaining schema.sql runs only on a fresh volume.
@@ -623,14 +694,19 @@ precedent F4 also uses. Uses only existing `query_log` columns for the shipped v
 - **`api/tests/test_cag.py`**: `test_engine_usage_stats_applies_price` — assert the `savings` block
   wraps `Database.usage_stats()` output and applies the price from `settings` (pricing lives in the
   engine, not the DB fake).
+- **`api/tests/test_cli.py`** (new; imports the stdlib-only repo-root `llamacag` via the same
+  `sys.path` shim F6's `test_prepare.py` specs — F5 lands first, so this file introduces the
+  pattern): `test_status_survives_stats_outage` — monkeypatch `llamacag.http_get` to raise
+  `OSError` and assert `cmd_status` still returns `0` (stats are a nicety, never fail `status`);
+  an optional happy-path `capsys` assertion on the `usage:` line.
 
 **Invariants & risks:**
 - **Invariant 2** — the interval is *bound* (`%s::interval`), never interpolated; `usage_stats` is
   read-only `SELECT` and touches only `query_log`, keeping cag-api's writer monopoly over
   `documents` intact.
 - **Invariant 5** — new route, additive index string, money line present-but-null when disabled;
-  `log_query`'s new `cache_source` (follow-up) is a trailing keyword-default param and trailing SQL
-  column, so `params[1:]` FK-retry is unaffected.
+  `log_query`'s new `cache_source` (deferred follow-up PR) is specced as a trailing keyword-default
+  param and trailing SQL column, so `params[1:]` FK-retry stays unaffected when it ships.
 - **Invariant 6** — `CLOUD_PRICE_PER_1K_INPUT` in `config.py` + `docker-compose.yml` `cag-api` env
   + `.env.example` together; `docker compose config -q` ×3 in CI enforces it.
 - **Locks (4)** — untouched; `usage_stats` never touches `_lock`/`_slots_guard`.
@@ -654,11 +730,14 @@ precedent F4 also uses. Uses only existing `query_log` columns for the shipped v
   `estimated_usd == round(tokens_reused_all_time/1000 * price, 4)`.
 - [ ] `python llamacag.py status` prints the one-line usage summary and still succeeds when
   `/stats` is unreachable.
-- [ ] `FakeDatabase.usage_stats()` returns the real shape; new `test_db`/`test_api`/`test_cag` cases pass.
+- [ ] `FakeDatabase.usage_stats()` returns the real shape; new `test_db`/`test_api`/`test_cag`/
+  `test_cli` cases pass.
 - [ ] `ruff check --no-cache api` clean; `pytest api -q` and `pytest mcp -q` green.
-- [ ] (Optional follow-up) `database/migrations/001_cache_source.sql` idempotent; `schema.sql`
-  matches; `cag.py` passes `cache_source` into `log_query`; `/stats` windows carry
-  `sources:{memory,disk,recomputed}`; README documents the one-time migration.
+- [ ] `docs/ARCHITECTURE.md` endpoint list gains `GET /stats`; `docs/ROADMAP.md` flips F5.
+- [ ] (DEFERRED — follow-up PR only, per §11 decision 2; not a box for this branch)
+  `database/migrations/001_cache_source.sql` idempotent; `schema.sql` matches; `cag.py` passes
+  `cache_source` into `log_query`; `/stats` windows carry `sources:{memory,disk,recomputed}`;
+  README documents the one-time migration.
 
 ---
 
@@ -669,8 +748,10 @@ multi-column tables — extract badly or not at all through the `pypdf` text pat
 which raises 415 on a scan: "OCR is out of scope", extract.py:58), and the stack then trusts wrong
 text as ground truth (the one failure no downstream oracle safeguard can catch). This ships
 `python llamacag.py prepare <file>`, an offline CLI step that turns such documents into faithful
-Markdown and drops it in the watch folder so the existing ingestion path picks it up unchanged. It
-stays entirely out of `cag-api` so the request path remains shell-free.
+Markdown in a **staging folder** (`./prepared` by default — deliberately *not* the watch folder);
+after the mandated human review, the user moves the `.md` into the watch folder and the existing
+ingestion path picks it up unchanged. It stays entirely out of `cag-api` so the request path
+remains shell-free.
 
 **Effort & dependencies:** M. No dependency on other roadmap items. **Shared surfaces:** the
 `llamacag.py` CLI (adds a `prepare` subcommand alongside setup/start/stop/status/logs/query) and the
@@ -690,7 +771,7 @@ samples and F9's Library benefit from clean `.md` but neither is required. It re
 by design — the n8n whitelist is irrelevant here).
 - **New CLI command:** `python llamacag.py prepare <file> [--out FILE] [--force]`.
   - `<file>`: PDF (or already-text `.md`/`.txt`/`.html`, passed through) to prepare.
-  - `--out FILE`: explicit destination `.md`. Default `<PREPARE_OUT_FOLDER or DOCUMENTS_FOLDER>/<stem>.md`.
+  - `--out FILE`: explicit destination `.md`. Default `<PREPARE_OUT_FOLDER (default ./prepared)>/<stem>.md`.
   - `--force`: overwrite an existing destination (default: refuse and tell the user).
   - Exit codes: `0` success; `1` guided error (no converter + no text layer, converter missing on
     PATH, converter failed, destination exists without `--force`, unreadable input).
@@ -700,15 +781,23 @@ by design — the n8n whitelist is irrelevant here).
   - `PREPARE_CMD` — converter command template, e.g. `PREPARE_CMD=marker {in} {out}`. `{in}`/`{out}`
     are substituted as whole argv elements, split with `shlex.split`, run via
     `subprocess.run([...])` with a **list** argv (**no `shell=True`**).
-  - `PREPARE_OUT_FOLDER` — where prepared `.md` files land (default `DOCUMENTS_FOLDER`, the watch
-    folder, so ingestion is automatic).
+  - `PREPARE_OUT_FOLDER` — where prepared `.md` files land. Default `./prepared`, a **non-watched
+    staging folder** (created if missing), so a human reviews the conversion *before* anything can
+    be ingested — auto-ingest must not win the race against the review step. Power users who
+    accept auto-ingest can point it at the watch folder explicitly
+    (`PREPARE_OUT_FOLDER=./documents`).
 
 **Implementation steps:**
 1. **Config plumbing.** `read_env()` (llamacag.py:44) already parses `.env` into a dict. In
    `cmd_prepare`: `env = read_env()`; `prepare_cmd = env.get("PREPARE_CMD", "").strip()`;
-   `out_folder = PROJECT_ROOT / env.get("PREPARE_OUT_FOLDER", env.get("DOCUMENTS_FOLDER", "./documents"))`.
+   `out_folder = PROJECT_ROOT / env.get("PREPARE_OUT_FOLDER", "./prepared")`;
+   `out_folder.mkdir(parents=True, exist_ok=True)` (the staging folder is created if missing).
 2. **Resolve source & destination.** `src = Path(args.file)`; `return 1` if it doesn't exist / isn't
    a file. `dest = Path(args.out) if args.out else (out_folder / (src.stem + ".md"))`. If
+   `dest.exists()`: print the **re-ingest lifecycle hint** — a revised conversion ingests as a
+   **new** document row (dedupe is by content hash, not file name); the superseded row and its KV
+   cache linger and untargeted queries jump to the newest, so list documents and
+   `DELETE /documents/{id}` the old one, and pin `document_id` in workflows while iterating. Then if
    `dest.exists() and not args.force`: print a `--force` hint and `return 1`. Ensure `dest.parent`
    exists.
 3. **Already-text inputs pass through.** If `src.suffix.lower()` ∈
@@ -723,21 +812,24 @@ by design — the n8n whitelist is irrelevant here).
    broadly (corrupt streams raise bare `KeyError`/`struct.error`, encrypted PDFs raise
    `DependencyError`) → "no usable text". Return the text if non-empty, else `None`.
 5. **Decision tree in `cmd_prepare`:** (a) `text = _pdf_text_layer(src)`; if non-empty → write to
-   `dest`, print `[OK] Extracted text layer … Review it, then it will be ingested from the watch
-   folder.`, `return 0` (**text-layer path never shells out** — fastest, offline). (b) No text layer
+   `dest`, print `[OK] Extracted text layer → <dest>. Review <dest>, then move it into
+   <DOCUMENTS_FOLDER> to ingest.`, `return 0` (**text-layer path never shells out** — fastest,
+   offline). (b) No text layer
    **and** `prepare_cmd` set → run the converter (step 6). (c) No text layer **and** `prepare_cmd`
    empty → guided error (step 7).
 6. **Converter invocation — `_run_converter(prepare_cmd, src, dest) -> int`.** Substitute into a temp
    path so a failed converter leaves no half-written `dest`: `tmp_out = dest.with_suffix(".md.partial")`.
    `parts = shlex.split(prepare_cmd)`;
-   `argv = [{"{in}": str(src), "{out}": str(tmp_out)}.get(tok, tok) for tok in parts]` (explicit token
-   map — no string interpolation into a shell line). Guard the executable: `if shutil.which(argv[0])
+   `argv = [{"{in}": str(src.resolve()), "{out}": str(tmp_out.resolve())}.get(tok, tok) for tok in parts]`
+   (explicit token map, **resolved absolute paths** — no string interpolation into a shell line, and
+   an absolute path cannot start with `-`). Guard the executable: `if shutil.which(argv[0])
    is None:` print a PATH message and `return 1`. `proc = subprocess.run(argv, cwd=PROJECT_ROOT,
    capture_output=True, text=True)` — **list argv, no `shell=True`**. On `returncode != 0`: print
    `stderr[:2000]`, unlink `tmp_out`, `return 1`. Handle both output styles: if `tmp_out` exists and
    non-empty → `tmp_out.replace(dest)`; elif `proc.stdout.strip()` → write stdout to `dest`; else
    print "produced no output" and `return 1`. Print
-   `[OK] Converted … Review it before trusting the grounding.`, `return 0`.
+   `[OK] Converted … Review it before trusting the grounding, then move it into <DOCUMENTS_FOLDER>
+   to ingest.`, `return 0`.
 7. **Guided error — `_no_converter_message(src)`.** Multi-line, naming concrete options:
    ```
    [!!] '<name>' has no extractable text layer (scanned, image-only, or chart/table-heavy),
@@ -760,16 +852,22 @@ by design — the n8n whitelist is irrelevant here).
    ```python
    p_prepare = sub.add_parser("prepare", help="convert a PDF/scan/chart doc to Markdown for ingestion")
    p_prepare.add_argument("file", help="path to the document to prepare")
-   p_prepare.add_argument("--out", help="destination .md (default: watch folder / PREPARE_OUT_FOLDER)")
+   p_prepare.add_argument("--out", help="destination .md (default: PREPARE_OUT_FOLDER, ./prepared)")
    p_prepare.add_argument("--force", action="store_true", help="overwrite an existing destination")
    p_prepare.set_defaults(func=cmd_prepare)
    ```
    Add `import shlex` (subprocess/shutil/Path already imported).
 9. **README + `.env.example`.** Add the `PREPARE_CMD`/`PREPARE_OUT_FOLDER` block to `.env.example`
-   (commented, with marker/docling/vision examples). Expand the README "Preparing documents" section:
+   (commented, with marker/docling/vision examples; note `PREPARE_OUT_FOLDER` defaults to the
+   `./prepared` staging folder, not the watch folder). Expand the README "Preparing documents" section:
    the exact command, the text-layer-vs-converter behavior, the pluggable knob, the privacy trade-off
    (a cloud vision converter sends the document out; a local vision model / marker / docling keeps it
-   on your machine), and the review step: **always eyeball the produced `.md` before trusting grounding.**
+   on your machine), the review step: **always eyeball the produced `.md` before trusting grounding —
+   then move it into the watch folder to ingest**, and the **re-ingest lifecycle**: re-running
+   `prepare` on a revised conversion creates a **new** document row on ingest (dedupe is by content
+   hash, not file name); the old row and its KV cache linger and untargeted queries jump to the
+   newest — list documents, `DELETE /documents/{id}` the superseded one, and pin `document_id` in
+   workflows while iterating.
 
 **Tests to add** (`api/tests/test_prepare.py` — collected by `pytest api`; header shim
 `import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))` then
@@ -801,14 +899,16 @@ by design — the n8n whitelist is irrelevant here).
 - **No shell in the request path (2 & 3)** — all of F6 lives in `llamacag.py`, never in `cag-api`.
   Even in the CLI the converter runs via `subprocess.run(argv_list)` with `{in}`/`{out}` substituted as
   whole argv elements — no `shell=True`, no string-built command line, so a malicious filename cannot
-  inject arguments.
+  inject shell syntax; paths are passed as single **resolved-absolute** argv elements, so they cannot
+  be parsed as converter options either.
 - **CLI must not import `api.app`** — `llamacag.py` is stdlib-only and runs from a bare clone without
   `pip install -e ./api`. Importing `app.extract` would couple it to FastAPI/pydantic. F6 re-implements
   the ~4-line text-layer probe with a **lazy** pypdf import guarded by `ImportError`. Failure mode
   avoided: a bare-clone user gets a clear next step, not a traceback.
 - **Faithful-text contract** — F6 only *produces* text; ingestion still independently extracts/validates
   whatever `.md` lands in the watch folder. A garbage-emitting converter is caught by the README-mandated
-  human review; F6 deliberately does not auto-ingest, so nothing wrong reaches the KV cache unreviewed.
+  human review; F6 deliberately does not auto-ingest (the default `./prepared` staging folder is not
+  watched), so nothing wrong reaches the KV cache unreviewed.
   The `SYSTEM_TEMPLATE`/KV invariants (1) and two-lock discipline (4) are untouched (no engine code changes).
 - **Additive-only (5)** — no existing subcommand/endpoint/config/response changes; `prepare` and the two
   env knobs are new. `api/app/config.py` is intentionally untouched, so the three-places rule (6) does
@@ -818,11 +918,13 @@ by design — the n8n whitelist is irrelevant here).
   `api/tests/` with a `sys.path` shim keeps it in an existing CI job with **no CI-workflow change and no
   new dependency** (7). `ruff check api` lints it.
 - **Partial-output risk** — writing to `dest.md.partial` and `replace()`-ing only on success means a
-  failed conversion leaves the watch folder clean (no truncated `.md` for ingestion to trust).
+  failed conversion leaves the staging folder clean (no truncated `.md` for a reviewer to mistake for
+  a finished conversion — and nothing reaches the watch folder unreviewed either way).
 
 **Acceptance (done when):**
-- [ ] `python llamacag.py prepare <text-layer.pdf>` writes a `.md` to the watch folder (or `--out`)
-  with no converter configured and without shelling out.
+- [ ] `python llamacag.py prepare <text-layer.pdf>` writes a `.md` to the `./prepared` staging
+  folder (or `--out`) with no converter configured and without shelling out, and prints the
+  review-then-move-to-watch-folder instruction.
 - [ ] `python llamacag.py prepare <scanned.pdf>` with no `PREPARE_CMD` prints a guided error naming
   marker / docling / local-vision options and the `PREPARE_CMD` env var, and exits `1`.
 - [ ] With `PREPARE_CMD` set, a scanned/image PDF is converted via `subprocess.run([...])` (list argv,
@@ -847,12 +949,11 @@ the long-context "absent-miss" (lost-in-the-middle) risk so the user knows the e
 before trusting the oracle on that document, and can pick a safe (model × canon-size) operating point.
 
 **Effort & dependencies:** M. Depends on **F1** for `api/app/grounding.py` (F4 reuses F1's `grounding()`
-for the fuzzy tiebreak; it does **not** need F1's `/verify` endpoint). **Shared surfaces:** `CagEngine.query()`
-(called per item, unmodified); `DOCUMENT_COLUMNS`/`GET /documents` and the `documents` table if the optional
-`reliability` column ships (shares the migration precedent with F5). **Soft edge:** if F1 is not yet merged
-when F4 is built, ship the scorer against a **local private helper** `_score_answer()` (normalized
-containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `grounding()` when F1 lands
-(same threshold semantics) — this keeps F4 independently buildable.
+for the fuzzy tiebreak; it does **not** need F1's `/verify` endpoint). §10's commit order guarantees F1
+lands first, so `_score_answer()` calls `grounding()` from the start — no inline fallback exists.
+**Shared surfaces:** `CagEngine.query()` (called per item, unmodified); `DOCUMENT_COLUMNS`/
+`GET /documents` and the `documents` table only in the **deferred** `reliability` column follow-up
+(§11 decision 2 — not in this PR).
 
 **Files touched:**
 - `api/app/cag.py` **(modified)** — add `calibrate()` and module-level `_normalize()`/`_score_answer()`.
@@ -860,16 +961,22 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
   `POST /documents/{document_id}/calibrate`; extend `index()`.
 - `api/app/config.py` **(modified)** — add `calibrate_max_items: int = 100` and
   `calibrate_match_threshold: float = 0.85`.
+- `docker-compose.yml` **(modified)** — `CALIBRATE_MAX_ITEMS` + `CALIBRATE_MATCH_THRESHOLD` in the
+  `cag-api` environment block.
+- `.env.example` **(modified)** — commented `CALIBRATE_*` lines.
 - `api/app/grounding.py` **(dependency, from F1)** — consumed read-only; not created here.
-- `api/app/db.py` **(modified, optional column)** — add `reliability` to `DOCUMENT_COLUMNS`; add
-  `set_reliability(document_id, accuracy)`.
-- `database/schema.sql` **(modified, optional column)** — add nullable `reliability` for fresh volumes.
-- `database/migrations/002_reliability.sql` **(new, optional column)** — `ALTER TABLE` for existing
-  deployments. **(002, not 001 — F5's optional follow-up claims `001_cache_source.sql`; see the
-  migration-ordering note in §7.)**
+- `api/app/db.py` **(DEFERRED — follow-up column PR only)** — add `reliability` to `DOCUMENT_COLUMNS`;
+  add `set_reliability(document_id, accuracy)`.
+- `database/schema.sql` **(DEFERRED — follow-up column PR only)** — add nullable `reliability` for
+  fresh volumes.
+- `database/migrations/002_reliability.sql` **(DEFERRED — follow-up column PR only)** — `ALTER TABLE`
+  for existing deployments. **(002, not 001 — F5's deferred follow-up claims `001_cache_source.sql`;
+  see the migration-ordering note in §7.)**
 - `api/tests/test_cag.py`, `api/tests/test_api.py`, `api/tests/conftest.py` **(modified)**.
 - `n8n/workflows/calibration-workflow.json` **(new, optional)** — webhook wrapper.
 - `README.md` **(modified)** — "Know your canon's reliability" subsection.
+- `docs/ARCHITECTURE.md` **(modified)** — endpoint list gains the calibrate route.
+- `docs/ROADMAP.md` **(modified)** — flip F4 status.
 
 **Interface / API changes:**
 - **New endpoint** `POST /documents/{document_id}/calibrate`
@@ -880,13 +987,17 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
   - Response: `{"document": {"id","file_name","n_tokens"}, "n": int, "correct": int, "accuracy": float,
     "strict": bool, "misses": [{"question","expected","got"}]}`. `accuracy = round(correct/n, 4)`; `misses`
     lists only failed items.
-- **`GET /documents`** — *additive*: rows gain a nullable `reliability` field (last computed accuracy,
-  `null` until calibrated). Existing consumers ignore unknown keys.
+- **`GET /documents`** — **(DEFERRED with the column — follow-up PR)** rows gain a nullable
+  `reliability` field (last computed accuracy, `null` until calibrated). Existing consumers ignore
+  unknown keys. Not in this branch.
 - **`GET /`** index — append the calibrate route string (additive).
 - **Config knobs** — `calibrate_max_items` (battery cap) and `calibrate_match_threshold` (containment/fuzzy
   pass line for non-strict scoring, distinct from F1's `quote_match_threshold` so calibration strictness
-  tunes independently). Behavioral-only → three-places rule N/A; add commented lines to `.env.example` for
-  discoverability only.
+  tunes independently). Behavioral, not geometry — but compose's `cag-api` environment block is an
+  **explicit allowlist**, so add `- CALIBRATE_MAX_ITEMS=${CALIBRATE_MAX_ITEMS:-100}` and
+  `- CALIBRATE_MATCH_THRESHOLD=${CALIBRATE_MATCH_THRESHOLD:-0.85}` to `docker-compose.yml` (the
+  `DEFAULT_TEMPERATURE` precedent) plus commented `.env.example` lines — the 422 message tells users
+  to set `CALIBRATE_MAX_ITEMS`, so the knob must actually reach the container.
 - **Workflow (optional)** `calibration-workflow.json`: `webhook (POST cag/calibrate, v2)` → `httpRequest 4.2`
   (POST `http://cag-api:8000/documents/{{ $json.body.document_id }}/calibrate`, body `{qa, strict}`,
   `onError:"continueErrorOutput"`, `timeout:3600000`) → `respondToWebhook 1.1` (success) with an error-branch
@@ -902,8 +1013,11 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
    # below it, difflib ratio must clear this). Distinct from quote_match_threshold.
    calibrate_match_threshold: float = 0.85
    ```
-2. **`cag.py` scorer** — module-level, pure, stdlib-only:
+2. **`cag.py` scorer** — module-level, pure, stdlib-only (F1 lands first per §10, so the fuzzy
+   branch calls F1's `grounding()` from the start — no inline `SequenceMatcher` fallback):
    ```python
+   from .grounding import grounding
+
    def _normalize(text: str) -> str:
        return " ".join(text.split()).casefold()
 
@@ -915,17 +1029,17 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
            return ans == exp
        if exp in ans:                 # normalized containment: the primary signal
            return True
-       from difflib import SequenceMatcher
-       return SequenceMatcher(None, exp, ans).ratio() >= threshold
+       return grounding(expected, got, threshold=threshold)["match_ratio"] >= threshold
    ```
-   When F1 has landed, the fuzzy branch instead calls `grounding(expected, got)["match_ratio"] >= threshold`.
+   The fuzzy branch rides `grounding()`'s **anchored-window** semantics: a near-match of `expected`
+   embedded anywhere in a verbose `got` clears the threshold, where a whole-string ratio would fail.
    Containment-first is deliberate: a correct short answer ("12 A") embedded in a verbose reply must score
    correct, which a whole-string ratio would miss.
 3. **`cag.py` `calibrate()`**:
    ```python
    def calibrate(self, document_id: int, qa: list[dict], *, strict: bool = False,
                  max_tokens: int | None = None) -> dict:
-       doc = self._db.get_document(document_id, with_content=True)
+       doc = self._db.get_document(document_id)
        if doc is None:
            raise UnknownDocumentError(f"No document with id {document_id}")
        threshold = self._settings.calibrate_match_threshold
@@ -940,7 +1054,7 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
                misses.append({"question": question, "expected": expected, "got": got})
        n = len(qa)
        accuracy = round(correct / n, 4) if n else 0.0
-       if hasattr(self._db, "set_reliability"):   # optional column path
+       if hasattr(self._db, "set_reliability"):   # no-op in this PR; lights up with the deferred column
            self._db.set_reliability(document_id, accuracy)
        return {"document": {"id": doc["id"], "file_name": doc["file_name"], "n_tokens": doc["n_tokens"]},
                "n": n, "correct": correct, "accuracy": accuracy, "strict": strict, "misses": misses}
@@ -977,7 +1091,8 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
    The cap is enforced in the route (not only Pydantic) so the error message can name the env knob,
    mirroring the upload-cap 413 pattern (main.py:141). `UnknownDocumentError` from the engine is translated
    to 404 by the existing handler.
-5. **Optional `reliability` column** (ship as a clearly-separable second commit):
+5. **DEFERRED to follow-up PR (§11 decision 2 ruling) — do not build in this branch.**
+   **Optional `reliability` column** (kept as the follow-up blueprint):
    - `db.py`: append `reliability` to `DOCUMENT_COLUMNS` (so every `SELECT` and `GET /documents` carries it);
      add:
      ```python
@@ -992,18 +1107,23 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
      reliability REAL;` with a header explaining schema.sql runs only on a fresh volume and the one-time
      `docker compose exec -T db psql … < …` apply. `IF NOT EXISTS` makes it idempotent.
    - README "Updating & maintenance": a one-line pointer.
+   - Deferred tests (build **with** the column, not before): `test_calibrate_sets_reliability_column` —
+     `fake_db.documents[1]["reliability"] == round(2/3, 4)`; `test_calibrate_reliability_surfaces_on_list`
+     — after calibrate, the `GET /documents` row carries the returned `accuracy`; plus the
+     `FakeDatabase` mirror (`"reliability": None` in the `insert_document` dict, carried by `_public`,
+     and `set_reliability(document_id, accuracy)` returning the row-existed bool).
 6. **README** — "Know your canon's reliability" subsection: the `curl`, the caller-supplied-ground-truth
    caveat (measures *this canon under this model*, not the model in general), and the escalation-rate framing
-   (accuracy ≈ 1 − expected `absent`-miss rate for that battery). Note `reliability` on `GET /documents`.
+   (accuracy ≈ 1 − expected `absent`-miss rate for that battery). (Do **not** document a `reliability`
+   field on `GET /documents` — it arrives with the deferred column PR.)
 
 **Tests to add:**
 - **`conftest.py`** (extend fakes):
-  - `FakeLlama`: add `self.scripted: dict[str, str] = {}` and, in `chat()`, derive from the *last user
-    message* — `q = messages[-1]["content"]; return {... "content": self.scripted.get(q, self.answer) ...}`.
-    Existing tests unaffected (empty dict → `self.answer`). Composes cleanly with F1's `answer_json`
-    (F1/F4 tests never set both; `scripted` keys off the user turn while `answer_json`/`answer` is the fallback).
-  - `FakeDatabase`: add `"reliability": None` to the `insert_document` dict (carried by `_public`) and
-    `set_reliability(document_id, accuracy)` returning the row-existed bool.
+  - `FakeLlama`: add `self.scripted: dict[str, str] = {}` and extend `chat()` to the **canonical
+    composed body in §8** (scripted lookup keyed on the last user turn; fallback =
+    `answer_json`-else-`answer`). Existing tests unaffected (empty dict + `answer_json=None` ⇒
+    `self.answer`).
+  - (`FakeDatabase` `reliability` additions are **deferred** with the column — see step 5.)
 - **`test_cag.py`**:
   - `test_calibrate_scores_and_lists_misses` — `scripted = {"q1":"Fredville","q2":"wrong","q3":"42"}`;
     `calibrate(1, [{"question":"q1","expected":"Fredville"}, {"question":"q2","expected":"Metropolis"},
@@ -1013,12 +1133,16 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
     12 A."` → correct, `misses==[]`.
   - `test_calibrate_strict_requires_exact` — same containment case with `strict=True` → a miss (`correct==0`).
   - `test_calibrate_fuzzy_tiebreak_passes_near_match` — expected `"thermal shutdown at 150C"`, scripted
-    `"thermal shutdown at 150 C"` → non-strict pass via ratio ≥ threshold (guards the fuzzy branch / F1-swap).
+    `"thermal shutdown at 150 C"` → non-strict pass via ratio ≥ threshold (guards the fuzzy branch
+    through F1's `grounding()`).
+  - `test_calibrate_fuzzy_uses_anchored_window_semantics` — expected `"thermal shutdown at 150C"`,
+    scripted a **verbose** answer embedding the near-match (`"Per section 9, the unit enters thermal
+    shutdown at 150 C to protect the cell."`) → non-strict pass (pins anchored-window semantics — a
+    whole-string ratio over the verbose answer would fail).
   - `test_calibrate_unknown_document_raises` — `calibrate(999, [...])` raises `UnknownDocumentError`; assert
     `fake_llama.called("chat") == []` (fails before any query).
   - `test_calibrate_runs_through_query_path` — after calibrate, `len(fake_db.queries) == n` and every logged
     item has `success is True`.
-  - `test_calibrate_sets_reliability_column` — `fake_db.documents[1]["reliability"] == round(2/3, 4)`.
 - **`test_api.py`**:
   - `test_calibrate_endpoint_happy_path` — ingest via `/documents/text`; `scripted` set; `POST
     /documents/1/calibrate` (2-item battery) → 200, body `accuracy`/`misses`/`n`, `document.id == 1`.
@@ -1026,8 +1150,7 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
   - `test_calibrate_over_cap_is_422` — battery of `calibrate_max_items + 1` (tiny-cap client fixture with
     `calibrate_max_items=2`) → 422, `detail` contains `CALIBRATE_MAX_ITEMS`.
   - `test_calibrate_empty_battery_is_422` — `{qa: []}` → 422 (Pydantic `min_length=1`).
-  - `test_calibrate_reliability_surfaces_on_list` — after calibrate, `GET /documents` row has `reliability`
-    equal to the returned `accuracy`.
+  - (`test_calibrate_reliability_surfaces_on_list` is **deferred** with the column — see step 5.)
 
 **Invariants & risks:**
 - **Invariant 1** — respected structurally: `calibrate()` constructs no messages; it only calls `query()`,
@@ -1036,9 +1159,13 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
 - **Invariant 3** — inherited: a cold cache self-heals on the *first* item; the rest hit the now-hot slot.
 - **Invariant 4** — `calibrate()` never takes `_lock`/`_slots_guard`; it composes over `query()` (lock
   released between items), so a long battery does not starve `health()`.
-- **Invariant 5** — new route, additive `reliability` field, additive index entry; nothing changed/removed.
-  `reliability` is nullable so consumers that ignore unknown keys are unaffected.
-- **Invariant 2** — `set_reliability` uses a bound parameter; no process spawning.
+- **Invariant 5** — new route, additive index entry; nothing changed/removed. (The nullable
+  `reliability` field on `GET /documents` arrives only with the deferred column PR.)
+- **Invariant 2** — no process spawning; the deferred `set_reliability` is specced with a bound
+  parameter for the follow-up PR.
+- **Invariant 6** — `CALIBRATE_MAX_ITEMS`/`CALIBRATE_MATCH_THRESHOLD` land in `config.py` + the base
+  `docker-compose.yml` `cag-api` env block + `.env.example` in the same commit (compose env is an
+  explicit allowlist; the 422 message names the knob).
 - **Failure modes & mitigations:** runaway battery → capped at `calibrate_max_items` (422 naming the knob) +
   per-item `max_tokens`; a mid-battery `LlamaError` propagates to the existing `LlamaError`→502 handler
   (chosen over swallowing so a score is never computed over a degraded server — partial-battery resilience
@@ -1046,25 +1173,29 @@ containment + `difflib.SequenceMatcher` inline) and swap the fuzzy branch to `gr
   (expected `"12"` in `"120"`) → documented limitation, reduced by `strict=True` + word-normalization, and
   acceptable because calibration is an operator estimate, not a gate; caller-supplied ground truth → the
   response echoes `strict` and `misses` and the README states plainly this measures *this canon under this
-  model*; F1 not yet merged → the inline `_score_answer` fallback keeps F4 green (swap to `grounding()` is a
-  one-line change, covered by the fuzzy-tiebreak test); migration drift → the `reliability` column ships in
-  **both** `schema.sql` and `migrations/002_reliability.sql` (idempotent `IF NOT EXISTS`), and
-  `set_reliability` is behind `hasattr`, so the core feature ships independently of the column.
+  model*; unmigrated-deployment 500s → **eliminated in this branch by cutting the column entirely**
+  (§11 decision 2): the `hasattr` guard gives commit-level separability only, *not* DB tolerance —
+  once `reliability` is appended to `DOCUMENT_COLUMNS`, every document `SELECT` on an unmigrated DB
+  raises UndefinedColumn and takes `/query` + ingestion down with it, which is exactly why the column
+  commit is deferred to a follow-up PR that adds a startup capability probe.
 
 **Acceptance (done when):**
 - [ ] `POST /documents/{id}/calibrate` returns `{n, correct, accuracy, strict, misses}`; a 2-of-3 fixture
   yields `accuracy == round(2/3, 4)` with the one miss listed.
-- [ ] Unknown `document_id` → 404; empty battery → 422; over-cap battery → 422 naming `CALIBRATE_MAX_ITEMS`.
+- [ ] Unknown `document_id` → 404; empty battery → 422; over-cap battery → 422 naming
+  `CALIBRATE_MAX_ITEMS` — and both `CALIBRATE_*` vars are plumbed through `docker-compose.yml`'s
+  `cag-api` env block + `.env.example` so setting them actually works.
 - [ ] Scoring: normalized containment passes an embedded short answer; `strict=True` requires exact; fuzzy
   tiebreak passes a near-match at/above threshold.
 - [ ] The battery runs through the real `query()` path (each item in `query_log`; `temperature=0`), leaving
   `SYSTEM_TEMPLATE` and the KV cache untouched.
-- [ ] (Optional column) `reliability` is nullable in `schema.sql`, ships as
-  `database/migrations/002_reliability.sql` (idempotent), is set after calibration, and surfaces on
-  `GET /documents`.
+- [ ] (DEFERRED — follow-up PR only, per §11 decision 2; not a box for this branch) `reliability`
+  nullable in `schema.sql`, `database/migrations/002_reliability.sql` idempotent, set after
+  calibration, surfaced on `GET /documents`.
 - [ ] (Optional) `calibration-workflow.json` imports and validates under the CI check.
 - [ ] `ruff check --no-cache api` clean; `pytest api` and `pytest mcp` green; `docker compose config -q`
-  unaffected; README "Know your canon's reliability" subsection added.
+  ×3 passes with the new `CALIBRATE_*` env lines; README "Know your canon's reliability" subsection added.
+- [ ] `docs/ARCHITECTURE.md` endpoint list gains the calibrate route; `docs/ROADMAP.md` flips F4.
 
 ---
 
@@ -1086,7 +1217,9 @@ landed, the gate additionally surfaces `conditions` (additive Set field) — not
 
 **Files touched:**
 - `n8n/workflows/answer-gate-workflow.json` **(new)**
-- `README.md` **(modified — one new subsection under "The grounding oracle")**
+- `README.md` **(modified)** — one new subsection under "The grounding oracle"; **plus** the
+  workflow-count/list lines (README ~194 and ~728): count 5→6, add `answer-gate` to the list, and
+  note `claim-verification`'s F1 retarget to `/verify` in the same breath.
 - `docs/ROADMAP.md` **(modified — F2 status row)**
 
 **Interface / API changes:** **No API changes** — pure HTTP orchestration over existing endpoints.
@@ -1181,8 +1314,9 @@ landed, the gate additionally surfaces `conditions` (additive Set field) — not
 - **CI "Validate workflows" job** (existing, auto-covers the new file): asserts the file parses, uses no
   deprecated nodes, and every `connections` source/target resolves to a node `name`. Adding the file makes
   CI validate **six** workflows; confirm the job prints `OK n8n/workflows/answer-gate-workflow.json (8 nodes)`.
-- **Manual import check** (documented in the PR): import into n8n 2.x, POST a draft that overstates the
-  document → `pass:false`; POST a draft the grounded answer supports → `pass:true`.
+- **Manual import check** (LIVE — Phase 4; executed and documented there): import into n8n 2.x, POST a
+  draft that overstates the document → `pass:false`; POST a draft the grounded answer supports →
+  `pass:true`.
 - **Design guard:** if any scoring logic beyond the Set expression proves necessary, it moves into a
   `/verify`-style endpoint (with `FakeLlama` tests), never an n8n Code node (banned by convention + CI).
 
@@ -1210,9 +1344,9 @@ landed, the gate additionally surfaces `conditions` (additive Set field) — not
 - [ ] `answer-gate-workflow.json` exists, is valid JSON, `active:false`, `executionOrder:"v1"`,
   `pinData:{}`, with a unique `webhookId` and exactly the eight nodes above at the specified typeVersions.
 - [ ] CI "Validate workflows" passes and prints `OK …/answer-gate-workflow.json (8 nodes)`.
-- [ ] Imports cleanly into n8n 2.x; a draft that overstates the document → `pass:false` with a
-  `contradicted`/`absent`/non-grounded verdict; a draft the grounded answer supports → `pass:true` with
-  `quote_grounded:true`.
+- [ ] (LIVE — Phase 4) Imports cleanly into n8n 2.x; a draft that overstates the document →
+  `pass:false` with a `contradicted`/`absent`/non-grounded verdict; a draft the grounded answer
+  supports → `pass:true` with `quote_grounded:true`.
 - [ ] Any error in either HTTP hop → `pass:false` + HTTP 502 (fail-closed).
 - [ ] README gains "Gating a support bot's answers" under the oracle (why answer-compare beats
   decompose-and-verify; fail-safe rule once; the curl), placed after line 141, before "It composes with LLM
@@ -1231,24 +1365,26 @@ daily-driver front door, and it is where the oracle finally gets a GUI and resid
 all as a pure same-origin client of endpoints that already exist.
 
 **Effort & dependencies:** M (effort, not risk — the ROADMAP's 11/11 vertical-slice feasibility note
-confirms every tab's data path works against the real `create_app()`). No dependency on other F# to ship
-(uses only `/documents`, `/documents/text`, `/query`, `/health`, `/maintenance`, `DELETE`). Two optional
-progressive enhancements: the **Verify** tab prefers `POST /verify` when **F1** is present (adds the
-`quote_grounded` column) and falls back to `/query`+`json_schema` before then; the **Stats** tab lights up
-a cumulative-savings line when **F5**'s `GET /stats` is present. Shared surface with **F10** (the empty-state
+confirms every tab's data path works against the real `create_app()`). Builds after F1 and F5 in §10's
+order: the **Verify** tab calls `POST /verify` **unconditionally** (same origin, same process — no
+probe, no fallback; see step 7), and the **Stats** tab lights up a cumulative-savings line when
+`GET /stats` answers (one progressive nicety). Shared surface with **F10** (the empty-state
 "Try a sample" affordance lives in this SPA). Shared files: `api/app/main.py` (one mount block) and
-`api/app/config.py` (optional `webui_enabled` knob).
+`api/app/config.py` (`webui_enabled` knob, shipping per §11 decision 5).
 
 **Files touched:**
 - `api/app/webui/index.html` **(new)** — self-contained vanilla-JS SPA, inline `<style>`/`<script>`, zero
   external refs.
 - `api/app/main.py` **(modified)** — mount `StaticFiles`.
-- `api/app/config.py` **(modified)** — optional `webui_enabled: bool = True`.
+- `api/app/config.py` **(modified)** — `webui_enabled: bool = True` (ships — §11 decision 5).
 - `api/pyproject.toml` **(modified)** — ship the non-`.py` asset in the wheel/editable install (package-data).
-- `api/tests/test_api.py` **(modified)** — `GET /ui/` smoke test (+ a mount-off test if the flag is added).
-- `.env.example`, `docker-compose.yml`, `docker-compose.gpu.yml`, `docker-compose.vulkan.yml` **(modified)** —
-  only if the `webui_enabled` knob is added (three-places rule).
+- `api/tests/test_api.py` **(modified)** — `GET /ui/` smoke test + the mount-off test.
+- `.env.example`, `docker-compose.yml` **(modified)** — `WEBUI_ENABLED` with `${WEBUI_ENABLED:-true}`
+  in the **base** `cag-api` environment block only. The gpu/vulkan overlays contain **only** a
+  `llama-server` service — there is no `cag-api` block in them to edit.
 - `README.md` **(modified)** — quick-start line + screenshot + security-boundary paragraph.
+- `docs/ARCHITECTURE.md` **(modified)** — note the `/ui` static mount.
+- `docs/ROADMAP.md` **(modified)** — flip F9 status.
 
 **Interface / API changes:**
 - **No endpoint changes.** Additive only: a new static mount at path prefix `/ui` (serves `index.html` at
@@ -1262,10 +1398,11 @@ a cumulative-savings line when **F5**'s `GET /stats` is present. Shared surface 
     {"memory","disk","recomputed"}`.
   - `POST /documents` (multipart `file`), `POST /documents/text` `{text, file_name?}`, `DELETE
     /documents/{id}` → `{deleted: id}`.
-- **Config knob (optional):** `WEBUI_ENABLED` (bool, default `true`). If added, follow the three-places
-  rule: `api/app/config.py` (`webui_enabled: bool = True`), the `${WEBUI_ENABLED:-true}` fallback in all
-  three `docker-compose*.yml` `cag-api` environment blocks, and a commented `#WEBUI_ENABLED=true` in
-  `.env.example`.
+- **Config knob (ships — §11 decision 5):** `WEBUI_ENABLED` (bool, default `true`):
+  `api/app/config.py` (`webui_enabled: bool = True`), the `${WEBUI_ENABLED:-true}` fallback in the
+  **one** `cag-api` environment block (base `docker-compose.yml`; the gpu/vulkan overlays define only
+  `llama-server`, so there is nothing to edit there), and a commented `#WEBUI_ENABLED=true` in
+  `.env.example`. `docker compose config -q` ×3 still validates all three renders.
 - **Workflow nodes:** none.
 
 **Implementation steps:**
@@ -1295,9 +1432,9 @@ a cumulative-savings line when **F5**'s `GET /stats` is present. Shared surface 
    ```
    The `.is_dir()` guard keeps the app importable if the asset is absent (a partial checkout skips the mount,
    never errors). `html=True` serves `index.html` at `/ui/`. Reuse the already-imported `Settings`
-   (production) or the injected `engine.settings` (test). If the `webui_enabled` knob is **not** wanted, drop
-   the flag term and mount whenever `_webui_dir.is_dir()`.
-3. **`api/app/config.py`** (only if gating):
+   (production) or the injected `engine.settings` (test). (§11 decision 5: the knob ships, default
+   `true`.)
+3. **`api/app/config.py`** (the knob ships — §11 decision 5):
    ```python
    # Serve the zero-install web UI at /ui. Loopback-only by design (the stack is
    # unauthenticated); see the security note in docs/ROADMAP.md F9 before binding
@@ -1329,11 +1466,14 @@ a cumulative-savings line when **F5**'s `GET /stats` is present. Shared surface 
    from `pending` to `cached`/`failed` (warming a large doc can take minutes — the poll must tolerate that;
    cap at a generous timeout and surface `error` on `failed`). Delete → `DELETE /documents/{id}` then refresh.
    Refresh `/health` alongside `/documents` so residency stays current.
-7. **Verify tab.** A `<textarea>` (one claim per line). On submit, split non-empty lines and per claim run the
-   verification. **Capability probe:** try `POST /verify {claim, document_id}` first; on 404/405 (pre-F1) fall
-   back to `POST /query {question:<verify-prompt>, temperature:0, json_schema:<DEFAULT_VERDICT_SCHEMA>}` and
-   parse the JSON out of `answer`. Render a verdict table: claim, verdict chip (supported→green,
-   contradicted→red, absent→muted, error→amber), the quote, and — when `/verify` was used — a
+7. **Verify tab.** A `<textarea>` (one claim per line). On submit, split non-empty lines and per claim
+   call `POST /verify {claim, document_id}` **unconditionally** — no capability probe, no `/query`
+   fallback. The SPA is served by the very process that owns `/verify`, and F9 builds after F1 (§10),
+   so a fallback is dead code; it would also mean duplicating `DEFAULT_VERDICT_SCHEMA` inside
+   `index.html`, and a 404 probe is ambiguous with unknown-document anyway. Sibling clients that may
+   face older servers (LlamaCagUI, MCP) must probe `GET /`'s endpoints list, not 404s — see
+   "Sibling project — LlamaCagUI reconciliation". Render a verdict table: claim, verdict chip
+   (supported→green, contradicted→red, absent→muted, error→amber), the quote, and a
    **`quote_grounded`** column (true→green ✓, false→red ✗, null→muted "n/a"). Run claims **sequentially**
    (inference is serialized behind `_lock` server-side; parallel `fetch` would just queue and could trip
    timeouts) with a per-row spinner. This is the oracle's first GUI.
@@ -1380,7 +1520,7 @@ with auth, or on a trusted LAN you control. General multi-user access is the **F
 - `test_webui_index_is_self_contained` — read `api/app/webui/index.html`; assert no external references (no
   `http://`/`https://` src/href — only relative or `data:` — and no `src=`/`href=` at a CDN). Cheap guard
   against a future accidental external font/script.
-- If the `webui_enabled` flag is added: `test_webui_disabled_returns_404` — build an engine whose
+- The `webui_enabled` flag ships (§11 decision 5): `test_webui_disabled_returns_404` — build an engine whose
   `settings.webui_enabled = False` (construct `Settings(cache_dir=tmp_path, llama_ctx_size=1000,
   answer_reserve_tokens=100, db_password="test", webui_enabled=False)`, mirroring the `settings` fixture at
   conftest.py:187) → `client.get("/ui/")` returns 404.
@@ -1389,12 +1529,13 @@ with auth, or on a trusted LAN you control. General multi-user access is the **F
 
 **Invariants & risks:**
 - **Invariant 1** — respected trivially: the SPA never sends a system message; it uses `/query`'s existing
-  `history` (user/assistant turns) and `json_schema` (sampling) paths only. The Verify fallback puts the
-  claim in a **user** turn.
+  `history` (user/assistant turns) path and `POST /verify` (whose claim rides in a server-side **user**
+  turn) only.
 - **Invariant 5** — respected: zero endpoint edits; a new static mount at a fresh path prefix. n8n, MCP
   client, and LlamaCag UI are untouched.
-- **Invariant 6** — respected by adding `WEBUI_ENABLED` to config + all three compose files + `.env.example`
-  together, or by skipping the knob entirely.
+- **Invariant 6** — respected by adding `WEBUI_ENABLED` to `config.py` + the base `docker-compose.yml`
+  `cag-api` env block + `.env.example` together (the gpu/vulkan overlays have no `cag-api` block;
+  `docker compose config -q` ×3 still validates).
 - **Invariant 7** — `StaticFiles` ships with FastAPI/Starlette and `python-multipart` is already a dependency
   (pyproject.toml:14); **no new runtime dep**. The new smoke tests keep `pytest api` green.
 - **Failure mode — asset missing from the image** (packages.find ignores non-`.py`): avoided by step 4's
@@ -1411,19 +1552,21 @@ with auth, or on a trusted LAN you control. General multi-user access is the **F
   and guarded by `test_webui_index_is_self_contained`.
 
 **Acceptance (done when):**
-- [ ] `python llamacag.py start` → `http://localhost:8000/ui` loads with the dark palette, no external
-  network requests (DevTools shows only same-origin calls).
-- [ ] Chat: pick a cached doc, ask a question, see the answer + correct cache-source chip + token receipt; a
-  second turn reuses `history`.
-- [ ] Library: drag-drop a `.md`, watch the row go `pending → cached` via polling; residency shows
-  Hot/Disk/Cold correctly against `/health`; delete works.
-- [ ] Verify: paste 2–3 claims, get a verdict table with colored chips (and the `quote_grounded` column when
-  `/verify`/F1 is present, fallback otherwise).
-- [ ] Stats: shows status/slots/hot-docs now; the savings line appears only when `/stats`/F5 is present.
+- [ ] (LIVE — Phase 4) `python llamacag.py start` → `http://localhost:8000/ui` loads with the dark
+  palette, no external network requests (DevTools shows only same-origin calls).
+- [ ] (LIVE — Phase 4) Chat: pick a cached doc, ask a question, see the answer + correct cache-source
+  chip + token receipt; a second turn reuses `history`.
+- [ ] (LIVE — Phase 4) Library: drag-drop a `.md`, watch the row go `pending → cached` via polling;
+  residency shows Hot/Disk/Cold correctly against `/health`; delete works.
+- [ ] (LIVE — Phase 4) Verify: paste 2–3 claims, get a verdict table with colored chips and the
+  `quote_grounded` column (`POST /verify`, no fallback).
+- [ ] (LIVE — Phase 4) Stats: shows status/slots/hot-docs now; the savings line appears when
+  `GET /stats` answers.
 - [ ] `GET /ui/` → 200 text/html smoke test passes; `ruff check --no-cache api` clean; `pytest api` and
   `pytest mcp` green.
 - [ ] README quick start names the `/ui` URL and states the security boundary; the `index.html` carries the
   same warning as a top comment.
+- [ ] `docs/ARCHITECTURE.md` notes the `/ui` mount; `docs/ROADMAP.md` flips F9.
 
 ---
 
@@ -1446,6 +1589,7 @@ surface — uses the existing `POST /documents/text`.
   hand-off.
 - `api/tests/test_api.py` **(modified)** — sample-ingest test.
 - `README.md` **(modified)** — one line in the "Use it" block naming the samples.
+- `docs/ROADMAP.md` **(modified)** — flip F10 status.
 
 **Interface / API changes:**
 - **No new endpoints.** The "Try a sample" button `POST`s the sample's text via existing `POST
@@ -1514,19 +1658,58 @@ surface — uses the existing `POST /documents/text`.
 **Acceptance (done when):**
 - [ ] `samples/acme-widget-manual.md` and `samples/refund-policy.md` exist, are dense and self-contained, and
   each carries checkable facts; the policy carries an explicit conditional.
-- [ ] On a fresh stack, `/ui` empty state shows **Try a sample**; one click ingests a sample to `cached` and
-  lands in Chat with a suggested question pre-filled.
-- [ ] Pasting *"Widgets are refundable within 30 days"* into Verify against the refund sample yields a
-  **contradicted** (or conditional, post-F3) verdict — the promised catch.
+- [ ] (LIVE — Phase 4) On a fresh stack, `/ui` empty state shows **Try a sample**; one click ingests a
+  sample to `cached` and lands in Chat with a suggested question pre-filled.
+- [ ] `samples/refund-policy.md` carries the explicit conditional clause (pinned by
+  `test_sample_files_are_nonempty_markdown`) and the Verify tab renders a verdict row for the claim
+  *"Widgets are refundable within 30 days"*; the real **contradicted** (or conditional, post-F3)
+  verdict — the promised catch — is asserted live (LIVE — Phase 4).
 - [ ] README "Use it" block names the samples; `test_sample_ingests_to_cached` and the Markdown-guard test
   pass; `ruff check --no-cache api` clean; `pytest api` green.
+- [ ] `docs/ROADMAP.md` flips F10.
+
+---
+
+## Phase 4 — live verification (gates the v2.1 tag)
+
+CI green proves contract and control flow over the fakes; it has **never** proven a real-model boot —
+the repo's standing gap (per MEMORY.md, restated in §8). Several acceptance boxes above are live-only
+and cannot tick in CI. The rule:
+
+**Merge-to-`main` may proceed on CI green, but the `v2.1` tag — the public release claim — is gated on
+this checklist, executed once on a real stack and documented (paste the outputs into a PR comment or
+`docs/E2E-RESULTS.md`). If it fails, fixes land on a follow-up branch before tagging.**
+
+**Live-only acceptance boxes, collected** (each original is tagged "(LIVE — Phase 4)" in place):
+- **F9:** `/ui` loads after `start`; DevTools shows same-origin calls only; Chat, drag-drop, and
+  residency behave against the real stack.
+- **F2:** n8n import of `answer-gate-workflow.json`; a passing and a failing draft through the webhook.
+- **F10:** fresh-stack "Try a sample" ingest; the refund claim yields a real contradicted/conditional
+  verdict.
+- **Global:** real KV reuse across queries (`timings.cache_source == "memory"` on the 2nd query), live
+  slot save/restore, and self-heal after deleting a `.bin` cache file.
+
+**The ~30-minute script:**
+1. `python llamacag.py start` (default Gemma model; first boot downloads ~6.5 GB).
+2. Ingest `samples/acme-widget-manual.md`; confirm `status == "cached"`.
+3. `POST /query` twice; the 2nd shows `timings.cache_source == "memory"`.
+4. `POST /verify` with a supported claim (expect `verdict:"supported"`, `quote_grounded:true`) and
+   with a fabricated-quote claim (expect `quote_grounded:false`).
+5. `GET /stats` — counts and latency reflect the queries just run.
+6. Import `n8n/workflows/answer-gate-workflow.json`; run a passing and a failing claim through the
+   webhook.
+7. Open `http://127.0.0.1:8000/ui` — guided first-run, drag-drop `samples/refund-policy.md`, Verify
+   *"Widgets are refundable within 30 days"* → contradicted/conditional.
+8. Delete the doc's `.bin` cache file, query again → answer still correct,
+   `cache_source == "recomputed"`.
 
 ---
 
 ## 7. Build sequence & dependency graph
 
-The eight in-scope features form a shallow dependency DAG with **three hard edges** and **two soft
-(progressive-enhancement) edges**. Everything else parallelizes.
+The eight in-scope features form a shallow dependency DAG with **five hard edges** and **one soft
+(progressive-enhancement) edge**. §10's sequential commit order honors every edge; the collision map
+below is why construction stays sequential.
 
 **Hard edges (a consumer cannot be *correct* without the producer):**
 - **F1 → F2.** The gate's `pass` rule is `verdict=="supported" && quote_grounded===true`; `quote_grounded`
@@ -1534,57 +1717,70 @@ The eight in-scope features form a shallow dependency DAG with **three hard edge
   and the gate fails *closed* — safe but useless (every draft escalates).
 - **F1 → F3.** F3 is the `conditions` field inside the *one* verdict schema F1 defines
   (`DEFAULT_VERDICT_SCHEMA`). They co-build; F3 has no standalone surface.
-- **F1 → F4 (soft-hard).** F4 reuses F1's `grounding()` for its fuzzy tiebreak, but ships an inline
-  `_score_answer()` fallback so it is **independently buildable** if sequenced before F1 lands. Prefer
-  F1-first; the build does not stall on it.
+- **F1 → F4.** F4's `_score_answer()` fuzzy tiebreak calls F1's `grounding()` directly — §10 sequences
+  F1 first, so no inline fallback exists.
+- **F1 → F9.** The Verify tab calls `POST /verify` unconditionally (same origin, same process; no
+  probe, no fallback), so F9 needs F1 merged.
+- **F9 → F10.** F10 edits F9's `index.html` (the "Try a sample" button lives in its empty state);
+  the sample files + ingest test could land earlier, but the commit lands last.
 
-**Soft edges (a *feature within* a shipped feature lights up when the producer arrives):**
-- **F1 → F9's Verify `quote_grounded` column** (SPA probes `/verify`, falls back to `/query`+schema).
+**Soft edge (a *feature within* a shipped feature lights up when the producer arrives):**
 - **F5 → F9's Stats savings line** and **F5 → `llamacag.py status` savings line** (Stats tab attempts
-  `/stats`, omits the section on 404).
-- **F9 → F10** (the "Try a sample" button lives in F9's empty state; samples + test land independently).
+  `/stats`, omits the section on 404; `status` wraps the fetch in try/except).
 
 **The DAG:**
 ```
         F1 ──┬──► F2  (gate: needs quote_grounded)
              ├──► F3  (co-built: conditions field in F1's schema)
-             └┄┄► F4  (reuses grounding(); inline fallback if not yet merged)
+             ├──► F4  (calibrate's fuzzy tiebreak calls grounding(); F1 lands first)
+             └──► F9  (Verify tab calls /verify directly — no fallback)
 
         F5 ┄┄► F9.Stats line  &  llamacag status savings line   (progressive)
-        F1 ┄┄► F9.Verify quote_grounded column                  (progressive)
 
-        F9 ──► F10  (Try-a-sample button; samples+test land independently)
+        F9 ──► F10  (Try-a-sample button edits F9's index.html)
 
-        F6  (fully independent — CLI-only, touches no engine/endpoint)
+        F6  (no engine/endpoint surface — but shares llamacag.py + .env.example with F5)
 ```
 
-**Phasing (respecting every edge, maximizing parallelism):**
+**Phasing (respecting every edge; construction sequential, verification fanned out):**
 
 | Phase | Features | Parallel with | Effort | Why here |
 |---|---|---|---|---|
-| **0 — foundation** | **F1 + F3** (co-built) | F5, F6, F4, F10-files | **M** (~2–3 dev-days: `grounding.py` + anchored-window matcher is the real work; `verify_claim` is thin over `query()`; F3 is XS) | Unblocks the most downstream edges (F2, F4-matcher, F9-Verify-column). Fixes the shared verdict schema once. |
-| **1 — independents** | **F5**, **F6**, **F4** (against inline fallback *or* wait for Phase 0) | each other + Phase 0 | **F5 M, F6 M, F4 M** — three separate surfaces (db/main vs llamacag.py vs cag/main), parallelizable across agents | None touch F1's code. F5 & F6 share *zero* files with F1; F4 shares only non-overlapping module-level additions in `cag.py`/`main.py`/`config.py`. |
-| **2 — composition & SPA** | **F2** (gate workflow), **F9** (web UI) | each other | **F2 S**, **F9 M** | F2 needs F1's `/verify` live. F9 is best after F1 (Verify column) and F5 (Stats line) so both progressive tabs light up on first ship rather than shipping half-dark. |
-| **3 — first-run polish** | **F10** (samples + first-run) | — | **S** | Depends on F9's SPA to host the button; its richest Verify demo depends on F3's `conditions`. Genuinely last. |
+| **0 — foundation** | **F1 + F3** (co-built), then **F1b** (MCP verify) | verification fan-out after each commit; F2's workflow JSON may be authored concurrently | **M** (~2–3 dev-days: `grounding.py` + anchored-window matcher is the real work; `verify_claim` is thin over `query()`; F3 is XS; F1b is thin over `FakeCagApi`) | Unblocks every downstream edge (F2, F4's scorer, F9's Verify tab). Fixes the shared verdict schema once. |
+| **1 — independents** | **F5**, then **F6**, then **F4** | verification fan-out after each commit | **F5 M, F6 M, F4 M** — three features, three sequential commits | None consume each other's endpoints, but they are **not** file-disjoint: F1/F4/F5 contend on `config.py`/`cag.py`/`main.py`/`conftest.py`/`test_cag.py`/`test_api.py`, and F5/F6 both edit `llamacag.py` + `.env.example` — hence sequential commits, not parallel lanes. |
+| **2 — composition & SPA** | **F2** (gate workflow), then **F9** (web UI) | verification fan-out; F2's JSON may be pre-authored (file-disjoint) | **F2 S**, **F9 M** | F2 needs F1's `/verify` live. F9 builds after F1 (the Verify tab calls `/verify` directly — no fallback) and F5 (Stats line lights up on first ship). |
+| **3 — first-run polish** | **F10** (samples + first-run) | — | **S** | Depends on F9's SPA to host the button (F10 edits `index.html`); its richest Verify demo depends on F3's `conditions`. Genuinely last. |
+| **4 — live verification** | tag gate — no new code | — | **S** (~30 min on a real stack) | CI green proves the fakes-level contract only; the `v2.1` **tag** additionally requires the live checklist (see "Phase 4 — live verification"). |
 
-**What parallelizes, concretely.** Phase 0 (F1/F3) and all of Phase 1 (F5, F6, F4-with-fallback) run as
-**four concurrent agent lanes** — they share no source lines: F1 adds `grounding.py`+`verify_claim`, F5 adds
-`usage_stats`+`/stats`, F6 lives entirely in `llamacag.py`, F4 adds `calibrate`+`/documents/{id}/calibrate`.
-The only shared *files* are `cag.py`, `main.py`, `config.py`, `conftest.py`, `README.md`, `ROADMAP.md` — and
-each appends distinct, non-overlapping blocks (new methods, new routes, new config knobs, new fake
-attributes). The merge conflicts are trivial (adjacent additions), which the branch strategy (§10) sequences
-to avoid.
+**Collision map (verified against each feature's Files-touched — the features do NOT partition into
+disjoint file sets):**
+- **F1 / F4 / F5** all edit `api/app/config.py`, `api/app/cag.py`, `api/app/main.py`,
+  `api/tests/conftest.py`, `api/tests/test_cag.py`, `api/tests/test_api.py` — six shared files.
+- **F5 and F6** both edit `llamacag.py` and `.env.example`.
+- **F9** contends with F1/F4/F5 on `main.py`, `config.py`, `test_api.py`.
+- **F10** edits F9's `index.html` (hard dependency).
+- Every feature touches `README.md` and/or `docs/ROADMAP.md`.
 
-**Realistic total:** ~8–11 dev-days serialized; ~4–5 calendar-days across 3–4 lanes, with Phase 2/3 (F2, F9,
-F10) gated behind Phase 0's merge because they consume `/verify` and the SPA.
+**Construction is sequential: one feature = one commit, in §10's order (F1+F3 → F1b → F5 → F6 → F4 →
+F2 → F9 → F10), each commit self-green (`pytest api`, `ruff check --no-cache`,
+`docker compose config -q` ×3) before the next begins. Parallelism belongs to verification, not
+construction: after each commit, independent read-only review/test agents may fan out. Sole
+exception: F2's code artifact (`answer-gate-workflow.json`) is file-disjoint from everything and may
+be authored concurrently; its README/ROADMAP edits still land inside its own sequential commit.**
 
-**Migration-ordering note the builder must honor.** Both **F4** (optional `reliability` column on
-`documents`) and **F5's follow-up** (optional `cache_source` column on `query_log`) introduce the *first ever*
-files under `database/migrations/` (the directory does not exist today — confirmed). Whichever lands first
-**creates the directory**; to avoid two branches both writing `001_`, this plan assigns **F5 →
-`001_cache_source.sql`** and **F4 → `002_reliability.sql`**. Both must be `ADD COLUMN IF NOT EXISTS`
-(idempotent) **and** patch `database/schema.sql` for fresh volumes — the schema edit and the migration are two
-separate edits that must agree.
+**Realistic total:** ~8–11 dev-days serialized in §10's commit order; verification fan-out after each
+commit is where agent parallelism pays, not construction.
+
+**Migration-ordering note (for the FOLLOW-UP PR — nothing under `database/migrations/` ships in this
+branch; §11 decision 2).** Both **F4** (deferred `reliability` column on `documents`) and **F5's
+deferred follow-up** (`cache_source` column on `query_log`) would introduce the *first ever* files
+under `database/migrations/` (the directory does not exist today — confirmed, and it stays absent in
+this PR). When the follow-up PR lands them: whichever goes first **creates the directory**; to avoid
+both claiming `001_`, this plan assigns **F5 → `001_cache_source.sql`** and **F4 →
+`002_reliability.sql`**. Both must be `ADD COLUMN IF NOT EXISTS` (idempotent) **and** patch
+`database/schema.sql` for fresh volumes — the schema edit and the migration are two separate edits
+that must agree — and the follow-up PR **must** add the startup capability probe (§11 decision 2) so
+unmigrated deployments degrade instead of 500.
 
 ---
 
@@ -1605,12 +1801,14 @@ signal. The CLAUDE.md rule holds for every F#: **extend the fakes, never mock ad
   DEFAULT_VERDICT_SCHEMA`. (3) *Contract* `test_api.py` asserts the full status map (404/409/502/422, and
   non-JSON model answer → **200** `verdict:"error"`).
 - **F2 — answer-gate workflow.** Zero core code ⇒ **zero Python tests**. Verification is the CI "Validate
-  workflows" job auto-covering `answer-gate-workflow.json` plus a documented manual n8n import check.
+  workflows" job auto-covering `answer-gate-workflow.json` plus the manual n8n import check executed in
+  **Phase 4 — live verification**.
 - **F4 — calibration.** `test_cag.py` drives `engine.calibrate(...)` with the new **scripted-answer** fake:
-  2-of-3 → `accuracy == round(2/3, 4)` with the miss listed; containment vs. `strict`; fuzzy tiebreak;
-  unknown-doc raises *before any* `chat` (`fake_llama.called("chat") == []`); every item in `fake_db.queries`;
-  `fake_db.documents[1]["reliability"]` set. `test_api.py` covers 200/404/422-empty/422-over-cap (naming
-  `CALIBRATE_MAX_ITEMS`) with a tiny-cap client fixture.
+  2-of-3 → `accuracy == round(2/3, 4)` with the miss listed; containment vs. `strict`; fuzzy tiebreak +
+  anchored-window pin; unknown-doc raises *before any* `chat` (`fake_llama.called("chat") == []`); every
+  item in `fake_db.queries`. (The `reliability` assertions are deferred with the column — §11 decision 2.)
+  `test_api.py` covers 200/404/422-empty/422-over-cap (naming `CALIBRATE_MAX_ITEMS`) with a tiny-cap
+  client fixture.
 - **F5 — `GET /stats`.** `test_db.py` (the file's `_one`-injection style): canned aggregate row →
   `reuse_ratio == round(900/1000, 4)`; no-token divide-by-zero guard; interval **bound not concatenated**
   (`params` is a 2-tuple with both elements equal, incl. `(None, None)`). `test_api.py`: `{windows, savings}`
@@ -1622,8 +1820,9 @@ signal. The CLAUDE.md rule holds for every F#: **extend the fakes, never mock ad
   sentinel `subprocess.run` fails the test if called); when a converter runs, the argv it receives is a
   **list** with `{in}`/`{out}` replaced by real paths.
 - **F9 — web UI.** `test_api.py`: `client.get("/ui/")` → 200 text/html containing `id="view"`; a
-  self-contained guard reading `index.html` asserting no `http(s)://` src/href; and, if the flag ships, a
-  `webui_enabled=False` engine → `/ui/` returns 404. Frontend behavior is effort not risk — no unit test now.
+  self-contained guard reading `index.html` asserting no `http(s)://` src/href; and a
+  `webui_enabled=False` engine → `/ui/` returns 404 (the flag ships — §11 decision 5). Frontend
+  behavior is effort not risk — no unit test now.
 - **F10 — samples + first-run.** `test_api.py`: read `samples/refund-policy.md`, `POST /documents/text` → 201
   `status:"cached"`, `"content" not in body`; a guard asserting both sample files are non-empty Markdown and
   the refund sample still contains the conditional (`assert "only if" in refund_text.lower()`).
@@ -1634,13 +1833,21 @@ defaults preserve today's behavior):
 | Fake | Addition | Used by | Back-compat |
 |---|---|---|---|
 | `FakeLlama` | `answer_json: str \| None = None`; in `chat()`, `content = self.answer_json if self.answer_json is not None else self.answer` | F1 | default `None` ⇒ `answer="the answer"` tests unchanged |
-| `FakeLlama` | `scripted: dict[str,str] = {}`; in `chat()`, key off the **last user message** (`messages[-1]["content"]`), fall back to `self.answer` | F4 | empty dict ⇒ `self.answer` still applies |
-| `FakeDatabase` | `"reliability": None` in the `insert_document` dict (carried by `_public`) + `set_reliability(document_id, accuracy)` | F4 | additive key; consumers ignore unknown fields |
+| `FakeLlama` | `scripted: dict[str,str] = {}`; in `chat()`, key off the **last user message** (`messages[-1]["content"]`), fall back to `answer_json` if set, else `answer` | F4 | empty dict ⇒ the F1 fallback chain still applies |
+| `FakeDatabase` | **(DEFERRED with the column — follow-up PR, §11 decision 2)** `"reliability": None` in the `insert_document` dict (carried by `_public`) + `set_reliability(document_id, accuracy)` | F4 follow-up | additive key; consumers ignore unknown fields |
 | `FakeDatabase` | `usage_stats()` returning the real `{24h,7d,all}` shape (sums over `self.queries`, collapsing time windows) | F5 | new method; window-differentiation is a live-DB concern out of scope for the fake |
 
 The two `FakeLlama.chat()` extensions compose cleanly: `answer_json` (a fixed JSON string) and `scripted`
-(per-question) coexist because `scripted` keys off the user turn while `answer_json`/`answer` is the fallback —
-F1 and F4 tests never set both.
+(per-question) coexist because `scripted` keys off the user turn while `answer_json`-else-`answer` is the
+fallback — F1 and F4 tests never set both. **The ONE canonical composed body** (F1 lands the `answer_json`
+half, F4 extends to exactly this — both features' conftest bullets defer here):
+
+```python
+# canonical FakeLlama.chat() content expression (F1 adds answer_json, F4 adds scripted):
+q = messages[-1]["content"]
+fallback = self.answer_json if self.answer_json is not None else self.answer
+content = self.scripted.get(q, fallback)   # self.scripted: dict, default {}
+```
 
 **The full CI gate list** (from `.github/workflows/ci.yml`, three jobs; every PR for every F# must pass all):
 1. **`ruff check api`** (job `api`, line 19).
@@ -1655,8 +1862,9 @@ F1 and F4 tests never set both.
    new file).
 6. **`docker compose config -q` ×3** (job `validate`, lines 62–70): base, `+gpu`, `+vulkan`, with
    `DB_PASSWORD`/`N8N_ENCRYPTION_KEY`/`N8N_USER_MANAGEMENT_JWT_SECRET=ci-only`. This is the machine check
-   behind invariant 6: any new env knob (F5's `CLOUD_PRICE_PER_1K_INPUT`, F9's optional `WEBUI_ENABLED`) must
-   keep all three renders valid.
+   behind invariant 6: any new env knob (F1's `QUOTE_MATCH_THRESHOLD`, F4's `CALIBRATE_*`, F5's
+   `CLOUD_PRICE_PER_1K_INPUT`, F9's `WEBUI_ENABLED` — all in the base `cag-api` block) must keep all
+   three renders valid.
 
 **Reconciliation — `ruff check` vs `ruff check --no-cache`.** Feature acceptance lists assert `ruff check
 --no-cache api`; CI runs plain `ruff check api` (a fresh runner has no cache anyway). Not in conflict —
@@ -1667,8 +1875,9 @@ satisfies the configured rule set `["E","F","W","I","UP","B"]` at `line-length =
 **What the fakes deliberately do *not* cover** (so reviewers don't expect it): real KV-cache reuse, slot
 save/restore against live llama-server, Postgres time-window correctness (`now() - interval`), n8n runtime
 execution, and browser behavior. These are E2E concerns (still unverified per MEMORY.md) — the fakes prove the
-*contract and control flow*, not that the engine reuses a prefix on real hardware. F5's window SQL and F4's
-migration are the two widest gaps, and both call it out in-spec.
+*contract and control flow*, not that the engine reuses a prefix on real hardware. F5's window SQL is the
+widest such gap (the F4/F5 columns and their migrations are deferred out of this PR entirely — §11
+decision 2). **Phase 4 — live verification** exists precisely to close the global gap before the `v2.1` tag.
 
 ---
 
@@ -1685,8 +1894,9 @@ migration are the two widest gaps, and both call it out in-spec.
    `_system_message`/`SYSTEM_TEMPLATE`, or constructing a `messages` list outside `query()`.
 2. **No shell in the request path; parameterized SQL only.** ☐ No `subprocess`/`os.system`/`shell=True`
    under `api/app/`. F6's converter *does* spawn a process but lives entirely in `llamacag.py`
-   (`subprocess.run([...])` list-argv, never `shell=True`). ☐ Every new SQL statement (F4 `set_reliability`,
-   F5 `usage_stats`) uses bound `%s` params — including the F5 interval, bound *twice*.
+   (`subprocess.run([...])` list-argv, never `shell=True`). ☐ Every new SQL statement (F5 `usage_stats`
+   now; F4's deferred `set_reliability` when its follow-up PR ships) uses bound `%s` params — including
+   the F5 interval, bound *twice*.
 3. **Queries stay correct with no cache files.** ☐ No new code makes a missing `.bin` an error. F1/F4
    inherit `query()`'s self-heal untouched; verification grounds against `doc["content"]`, not cache state.
    **Red flag:** any early-return or raise keyed on cache-file absence.
@@ -1695,18 +1905,22 @@ migration are the two widest gaps, and both call it out in-spec.
    `query_log` read. **Red flag:** a loop wrapped in a single long `_lock` hold, or any I/O under
    `_slots_guard`.
 5. **API changes are additive.** ☐ No existing endpoint/field/shape changed or removed — only new endpoints
-   (`/verify`, `/documents/{id}/calibrate`, `/stats`), new nullable fields (`reliability`), new index-list
-   strings. ☐ New fields *present-but-null* where a consumer might branch (F5 `estimated_usd`). ☐
-   `log_query`'s new `cache_source` (F5 follow-up) is a **trailing** keyword-default param and **trailing**
-   SQL column, so the FK-retry `params[1:]` slice (db.py:158) still works. **Red flag:** a renamed key, a
+   (`/verify`, `/documents/{id}/calibrate`, `/stats`) and new index-list strings (the nullable
+   `reliability` field is deferred with its column — §11 decision 2). ☐ New fields *present-but-null*
+   where a consumer might branch (F5 `estimated_usd`). ☐ `log_query`'s `cache_source` (deferred
+   follow-up PR) is specced as a **trailing** keyword-default param and **trailing** SQL column, so the
+   FK-retry `params[1:]` slice (db.py:158) still works when it ships. **Red flag:** a renamed key, a
    changed status code, or a positional-arg insertion into `log_query`.
-6. **Config defaults agree in three places.** ☐ Every *model/context/deployment* env knob is in
-   `config.py`, the `${VAR:-default}` fallback in **all three** `docker-compose*.yml` `cag-api` blocks, **and**
-   `.env.example`. F5's `CLOUD_PRICE_PER_1K_INPUT` and F9's optional `WEBUI_ENABLED` follow this;
-   `docker compose config -q` ×3 enforces it. ☐ *Behavioral-only* knobs `cag-api` reads but compose/geometry
-   never share (F1 `quote_match_threshold`, F4 `calibrate_*`, F6 `PREPARE_*`) live in `config.py` (or `.env`
-   for CLI-only F6) with a one-line comment saying why the rule does **not** apply. **Red flag:** a knob added
-   to `config.py` but not the three compose files.
+6. **Config defaults agree in three places.** ☐ Every env knob `cag-api` reads is in `config.py`, the
+   `${VAR:-default}` fallback in the `cag-api` environment block — which exists **only in base
+   `docker-compose.yml`**; the gpu/vulkan overlays define only a `llama-server` service, so there is no
+   `cag-api` block in them to edit — **and** `.env.example`. F5's `CLOUD_PRICE_PER_1K_INPUT` and F9's
+   `WEBUI_ENABLED` follow this; `docker compose config -q` ×3 enforces it. ☐ *Behavioral* knobs (F1
+   `quote_match_threshold`, F4 `calibrate_*`) are not geometry, but compose's env block is an explicit
+   allowlist — they still get the base-compose line + a commented `.env.example` entry, or a `.env`
+   setting never reaches the container. F6's `PREPARE_*` is CLI-only (read from `.env` directly by
+   `llamacag.py`; never in `config.py`/compose). **Red flag:** a knob added to `config.py` but not to
+   the base compose `cag-api` block + `.env.example`.
 7. **`ruff`/`pytest`/workflow-valid/no-new-dep.** ☐ All CI green. ☐ **No new runtime dependency** — every
    feature uses stdlib (`difflib`, `re`, `json`, `subprocess`, `shlex`, `shutil`) or an already-declared dep
    (`fastapi.staticfiles`/`python-multipart` for F9, `pypdf` for F6's lazy import). **Red flag:** a new line
@@ -1717,7 +1931,7 @@ migration are the two widest gaps, and both call it out in-spec.
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | **Byte-identical-prefix regression** (a feature slips content into the system prefix, silently invalidating every doc's KV cache) | Low | **Critical** — every cached doc self-heals slowly; users see minutes-long "recomputed" queries with no error | Structural: F1/F4 never build `messages` — they call `query()`. `test_verify_reuses_query_prefix_byte_identical` asserts byte-identity. Reviewer checklist item 1 flags any `_system_message`/`SYSTEM_TEMPLATE` edit or out-of-`query()` `messages` construction. |
-| **Migrations on existing deployments** (`schema.sql` runs only on a fresh volume; F4/F5 columns absent on running stacks) | Medium | Medium — a live deploy that pulls the new image but skips the migration hits "column does not exist" | New columns ship in **both** `schema.sql` (fresh) **and** `database/migrations/00x_*.sql` (existing, hand-applied), each idempotent `ADD COLUMN IF NOT EXISTS`. The engine degrades gracefully — F4's `set_reliability` behind `hasattr`, F5's pre-migration rows have `NULL cache_source` (fall outside `FILTER` counts). Forward-only, non-destructive, safe to re-run. README "Updating & maintenance" documents the one-time step. |
+| **Migrations on existing deployments** (`schema.sql` runs only on a fresh volume; F4/F5 columns absent on running stacks) | Eliminated in this PR (columns cut); Medium for the follow-up PR | **High** — an unmigrated deploy does **not** degrade gracefully: it 500s | **The columns are cut from this build** (§11 decision 2): neither `database/migrations/001/002` nor the column commits ship in this PR, so there is nothing to migrate. The blueprints stay in F5 step 7 / F4 step 5 for a follow-up PR — and when that PR ships, **the migration is MANDATORY, not optional**. The `hasattr` guards give commit-level separability only, *not* DB tolerance: with `reliability` appended to `DOCUMENT_COLUMNS`, every document `SELECT` (`get_document`/`list_documents`/`find_by_sha256`) raises UndefinedColumn → **every `/query` and all ingestion 500s**; with `cache_source` in `log_query`'s INSERT, **every `/query` 500s *after* paying full inference**. The follow-up PR must therefore add a startup capability probe (§11 decision 2) so unmigrated deployments degrade instead of 500. |
 | **New-dependency creep** (a fuzzy-match lib, a PDF-to-Markdown lib, a chart lib) | Medium | Medium — violates invariant 7; grows image + supply-chain surface | Hard budget: stdlib or already-declared deps only. F1's grounding is `difflib`+`re`; F6's converter is *pluggable and external* (`PREPARE_CMD`, user-installed) so the repo takes no dep on marker/docling; F9 uses `fastapi.staticfiles` (present). Reviewer item 7 blocks any `[project.dependencies]` addition; CI's `pip install -e` + `pytest` surfaces an undeclared import immediately. |
 | **Unauthenticated web-UI exposure** (F9 at `/ui`; binding the API beyond `127.0.0.1` to reach it from a phone publishes an unauthenticated document store + inference endpoint) | Medium | **High** — anyone on the network can read/delete documents and run inference | Loopback is the security boundary (ports bind `127.0.0.1`, docker-compose.yml:64). F9 mounts at a sub-path (never `/`) and ships a security-boundary paragraph verbatim in README + `index.html`, pointing multi-user needs at **F8**. Optional `WEBUI_ENABLED=false` disables the surface. No auth is *added* here (doing so silently would be worse — false security); the mitigation is making the boundary loud. |
 | **Converter privacy** (F6: a cloud vision converter in `PREPARE_CMD` silently ships confidential documents to a third party) | Medium | **High** — a scanned contract leaves the machine without the user realizing | `prepare` prefers the **local, offline** text-layer path first and never shells out when a PDF has a text layer. When a converter is needed, the guided error + `.env.example` present **local-first** options ("document never leaves your machine") and clearly label the cloud path as "the document **is sent** to a third party — do not use for confidential material." The README states the trade-off and mandates human review of the produced `.md`. F6 does **not** auto-ingest. |
@@ -1730,10 +1944,11 @@ triple-compose check are from `.github/workflows/ci.yml` (lines 19–70); the HT
 502) and `index()` endpoint list are from `api/app/main.py` (82–127); `log_query`'s trailing-param signature
 and the `params[1:]` FK-retry slice are `api/app/db.py` (126–158); `query_log` has **no** `cache_source`
 column and `documents` has **no** `reliability` column today (`database/schema.sql` 27–42) — confirming both
-migrations are genuinely additive; `cag.py` (349, 376–385) computes `cache_source` at query time but does
-**not** persist it (the gap F5's follow-up closes); `testpaths=["tests"]` in both `api/pyproject.toml` and
-`mcp/pyproject.toml` confirms the F6 test-collection risk; and `database/migrations/` does not yet exist — F4/
-F5 create it. Five workflows exist today (query, document-ingestion, maintenance, question-sweep,
+deferred columns are genuinely additive when the follow-up PR ships them; `cag.py` (349, 376–385) computes
+`cache_source` at query time but does **not** persist it (the gap the deferred F5 follow-up closes);
+`testpaths=["tests"]` in both `api/pyproject.toml` and `mcp/pyproject.toml` confirms the F6 test-collection
+risk; and `database/migrations/` does not yet exist — it **stays absent in this PR** (columns deferred; the
+follow-up PR creates it). Five workflows exist today (query, document-ingestion, maintenance, question-sweep,
 claim-verification); F2 adds the sixth.
 
 ---
@@ -1751,40 +1966,44 @@ git switch -c feat/oracle-hardening-and-webui main
 
 **Commit-per-phase, one logical unit each** (so review reads as a story and any phase can be reverted alone):
 1. `feat(verify): mechanical quote-grounding + POST /verify with conditions scope (F1, F3)` — `grounding.py`,
-   `verify_claim`, `DEFAULT_VERDICT_SCHEMA`, endpoint, retargeted `claim-verification-workflow.json`, tests,
-   README oracle asymmetry + `conditions`.
-2. `feat(stats): usage & cost-savings observability GET /stats (F5)` — `usage_stats`, `/stats`, `status`
-   one-liner, `CLOUD_PRICE_PER_1K_INPUT` in the three places, fake + tests. *(If taking the `cache_source`
-   follow-up, land it as its own commit carrying `database/migrations/001_cache_source.sql` + the `schema.sql`
-   edit + the `log_query`/`cag.py` gap-close.)*
-3. `feat(prepare): offline PDF/scan→Markdown CLI helper (F6)` — `cmd_prepare`, subparser, `PREPARE_*` in
+   `verify_claim`, `DEFAULT_VERDICT_SCHEMA`, endpoint, `QUOTE_MATCH_THRESHOLD` plumbing (compose +
+   `.env.example`), retargeted `claim-verification-workflow.json`, tests, README oracle asymmetry +
+   `conditions`, CLAUDE.md convention-line append.
+2. `feat(mcp): expose verify to MCP clients (F1b)` — `client.verify()`, the `verify` tool rendering
+   verdict/quote/quote_grounded/match_ratio/conditions in `ask_document`'s provenance style,
+   `FakeCagApi` tests. *(Own commit right after F1 so `pytest mcp` pins the new tool.)*
+3. `feat(stats): usage & cost-savings observability GET /stats (F5)` — `usage_stats`, `/stats`, `status`
+   one-liner, `CLOUD_PRICE_PER_1K_INPUT` in the three places, fake + tests. *(The `cache_source` column
+   follow-up is **deferred to a follow-up PR** — §11 decision 2; do not land it here.)*
+4. `feat(prepare): offline PDF/scan→Markdown CLI helper (F6)` — `cmd_prepare`, subparser, `PREPARE_*` in
    `.env.example`, `api/tests/test_prepare.py`, README.
-4. `feat(calibrate): per-canon reliability battery POST /documents/{id}/calibrate (F4)` — `calibrate`,
-   `_score_answer`, endpoint, `calibrate_*`, tests; optional `reliability` column as a **separable trailing
-   commit** carrying `database/migrations/002_reliability.sql` + `schema.sql` + `db.py`/fake, so the column can
-   be dropped from the PR without unpicking the core feature.
-5. `feat(gate): answer-gate workflow + fail-safe pattern docs (F2)` — `answer-gate-workflow.json`, README
-   "Gating a support bot's answers". *(After commit 1 so `/verify` exists.)*
-6. `feat(webui): zero-install SPA served at /ui (F9)` — `api/app/webui/index.html`, the `main.py` mount,
-   `pyproject.toml` package-data, optional `WEBUI_ENABLED` in the three-places, smoke tests. *(After 1 and 2
-   so Verify column + Stats line are live.)*
-7. `feat(samples): curated samples + guided first-run (F10)` — `samples/*.md`, empty-state button in
-   `index.html`, ingest tests, README "Use it" line. *(Last; depends on 6.)*
+5. `feat(calibrate): per-canon reliability battery POST /documents/{id}/calibrate (F4)` — `calibrate`,
+   `_score_answer`, endpoint, `calibrate_*` plumbing (compose + `.env.example`), tests. *(The
+   `reliability` column is **deferred to a follow-up PR** — §11 decision 2; do not land it here.)*
+6. `feat(gate): answer-gate workflow + fail-safe pattern docs (F2)` — `answer-gate-workflow.json`, README
+   "Gating a support bot's answers" + workflow-count/list lines. *(After commit 1 so `/verify` exists.)*
+7. `feat(webui): zero-install SPA served at /ui (F9)` — `api/app/webui/index.html`, the `main.py` mount,
+   `pyproject.toml` package-data, `WEBUI_ENABLED` (config + base compose + `.env.example`), smoke tests.
+   *(After 1 and 3 so the Verify tab + Stats line are live.)*
+8. `feat(samples): curated samples + guided first-run (F10)` — `samples/*.md`, empty-state button in
+   `index.html`, ingest tests, README "Use it" line; plus the release chore: bump `__version__` in
+   `api/app/__init__.py` to `"2.1.0"` (surfaced via `GET /`) — clients must treat `GET /`'s **endpoints
+   list**, not the version string, as the capability signal. *(Last; depends on 7.)*
 
 Each commit ends with the `Co-Authored-By: Claude <noreply@anthropic.com>` trailer per repo convention, and
 each is **self-green**: `ruff check --no-cache api mcp`, `pytest api -q`, `pytest mcp -q`, the CI
 workflow-validation script over `n8n/workflows/*.json`, and `docker compose config -q` (×3) all pass *at that
 commit*, not just at branch tip. This matters because the CI `validate` job runs `docker compose config -q`
-for all three variants — any compose knob added out-of-sync (F5's `CLOUD_PRICE_PER_1K_INPUT`, F9's optional
-`WEBUI_ENABLED`) fails the whole PR, so the three-places edit must be *in the same commit* as the code that
-reads the knob.
+for all three variants — any compose knob added out-of-sync (F1's `QUOTE_MATCH_THRESHOLD`, F4's
+`CALIBRATE_*`, F5's `CLOUD_PRICE_PER_1K_INPUT`, F9's `WEBUI_ENABLED`) fails the whole PR, so the
+three-places edit must be *in the same commit* as the code that reads the knob.
 
 **CI-green-before-merge, `main` protected.** Open the PR early as a **draft** so CI runs on every push; flip
 to ready only when all three CI jobs (api, mcp, validate) are green at tip. The three-places invariant and the
 workflow whitelist are *machine-checked* by the `validate` job — lean on that rather than manual review for
 those two.
 
-**Keeping it reviewable despite the size** (~15 files across two languages):
+**Keeping it reviewable despite the size** (~20 files across two languages):
 - **Phase commits are the review unit.** A reviewer reads commit 1 (the oracle hardening — the highest-stakes
   change, since it touches the KV-reuse invariant) in isolation, signs off, then moves on. The `git log` reads
   as the roadmap.
@@ -1792,30 +2011,77 @@ those two.
   `query()`/`SYSTEM_TEMPLATE`; call it out in the PR description and point the reviewer at
   `test_verify_reuses_query_prefix_byte_identical`. Everything downstream (F2, F5, F9, F10) is either pure
   workflow/SPA/CLI or additive read-only endpoints — much lower stakes.
-- **Migrations flagged in the PR body.** Because F4/F5's columns are the first-ever migrations, the PR
-  description must include the one-time `docker compose exec -T db psql … < database/migrations/00N_*.sql`
-  commands for existing deployments and state plainly: *fresh volumes get it from `schema.sql`; existing
-  volumes need the migration run by hand.* The reviewer confirms `schema.sql` and the migration agree.
-- **The optional columns are behind separable commits**, so a reviewer can defer them by dropping two commits,
-  not surgery inside a feature.
-- **One PR, not seven.** The features share the README oracle section, the verdict schema, and the fakes;
-  splitting into seven PRs would create a merge-order tangle (F2's PR can't be green until F1's is merged). A
+- **No migrations in this PR — say so in the PR body.** The F4/F5 columns are cut (§11 decision 2):
+  `database/migrations/` is not created, `schema.sql` is untouched, and no `psql` step exists for
+  existing deployments. State this plainly so the reviewer doesn't hunt for schema changes; the column
+  blueprints (F5 step 7, F4 step 5) are explicitly follow-up-PR material.
+- **One PR, not eight.** The features share the README oracle section, the verdict schema, and the fakes;
+  splitting into per-feature PRs would create a merge-order tangle (F2's PR can't be green until F1's is merged). A
   single phased PR with clean per-phase commits is more reviewable than a dependency chain of small PRs. If the
   branch grows unwieldy, the natural split is **Phase 0–1 as PR-A** and **Phase 2–3 off PR-A's merge as PR-B**
   — but start as one and split only if asked.
 
-**Rollout after merge:** all seven features are **off-by-default-safe or additive** — `/verify`, `/stats`,
-`/calibrate` are new endpoints nobody calls until pointed at; the SPA is gated by `_webui_dir.is_dir()` (and
-optionally `WEBUI_ENABLED`); `prepare` is a new subcommand; samples are inert files. Nothing changes existing
-behavior, so merge-to-`main` needs no staged rollout beyond running the two optional migrations on any
-pre-existing deployment. Tag the merge (e.g. `v2.1`) since it's a coherent capability jump.
+**Rollout after merge:** all eight features are **off-by-default-safe or additive** — `/verify`, `/stats`,
+`/calibrate` are new endpoints nobody calls until pointed at; the SPA is gated by `_webui_dir.is_dir()` +
+`WEBUI_ENABLED`; `prepare` is a new subcommand; samples are inert files. **No migrations ship in this PR**
+(the F4/F5 columns are deferred — §11 decision 2), so an existing deployment upgrades with
+`docker compose up -d --build` plus one n8n step: **re-import
+`n8n/workflows/claim-verification-workflow.json` and import `answer-gate-workflow.json`** (n8n →
+Workflows → Import from file) — previously imported copies keep pre-F1 behavior. Merge to `main` on CI
+green; tag **`v2.1` only after "Phase 4 — live verification" passes on a real stack** — it's a coherent
+capability jump, but the tag is the public claim.
+
+---
+
+## Sibling project — LlamaCagUI reconciliation
+
+**Verdict (from a line-by-line read of `llamacag_ui/api_client.py`):** the desktop client consumes
+`GET /health`, `GET/POST/DELETE /documents`, `POST /query` (sends
+`question`/`document_id`/`max_tokens`/`temperature`/`history`; reads `answer`, `document`,
+`duration_ms`, `timings.{prompt_tokens_evaluated, prompt_tokens_from_cache, answer_tokens,
+cache_source}`), `POST /maintenance`, and the status-code taxonomy 404/409/413/415/502/503. Its
+parsing is `.get()`/raw-tolerant of unknown fields. This plan is **additive-only** on every one of
+those surfaces — zero breaking deltas.
+
+**Binding rule for build agents: existing endpoint request/response contracts are FROZEN. New
+capability = new endpoint or new optional field. Never rename/retype/remove a field or change a
+status code the desktop client consumes.**
+
+**Positioning ("use it vs run it"):** the SPA is the zero-install front door (chat, library, verify,
+stats — anyone on the host); the desktop app is the operator's control room (stack lifecycle via
+`docker compose`, model switching/catalog, logs, native settings — structurally impossible for a
+same-origin SPA). The SPA gets the oracle's first GUI; the desktop adopts Verify/Stats after merge
+and stays a strict superset.
+
+**Post-merge adoption checklist (for the LlamaCagUI repo, NOT this build):**
+1. Docs-sync `api_client.py`'s contract notes (`/verify`, `/stats`, `/calibrate`).
+2. `ApiClient.capabilities()`: `GET /` once, check the endpoints list for `"POST /verify"` /
+   `"GET /stats"` / `"calibrate"` — never 404-probe `/verify` (ambiguous with unknown-document).
+3. `ApiClient.verify(...)` → a `VerifyResult` dataclass; the existing status taxonomy already covers
+   `/verify`'s 404/409/502.
+4. A Verify tab (claims textarea, verdict chips, tri-state `quote_grounded`, `conditions` column);
+   when `capabilities()` lacks `/verify`, disable the tab with "server too old" instead of calling it.
+5. `ApiClient.stats()` + a compact usage/savings panel on the Stack tab; hide when absent.
+6. Optional **Calibrate…** action per document (file-pick Q/A JSON), gated like Verify.
+7. `reliability` column surfacing: only after the follow-up migration PR ships (deferred here — §11
+   decision 2).
+8. No version pinning — capability probing permanently; show `GET /`'s self-reported version in the
+   Settings test-connection view for visibility.
 
 ---
 
 ## 11. For the reviewer — open decisions
 
-These are the forks the specs deliberately leave open. Each needs a yes/no before or during the build; none
-blocks branch-cut.
+### Review record (2026-07-03)
+
+Reviewed by a 5-lens adversarial fleet (plan-vs-code grounding, invariants, sequencing, sibling-UI
+contract, completeness) plus independent confirmation agents. 27 findings: 4 high — all confirmed
+(illusory migration tolerance, false parallelization map, conflicting `FakeLlama` specs, missing
+live-verification gate) — and ~17 accepted medium/low; all incorporated into this revision. The
+grounding lens verified 25+ file:line anchors exact and zero invented APIs.
+
+These are the forks the specs deliberately left open. Each keeps its original discussion and now
+carries a bold **reviewer ruling** — the rulings are binding for this build.
 
 **1. F9 web UI: hand-written static SPA vs. Gradio/Streamlit.** The plan commits to a **self-contained
 vanilla-JS `index.html`** mounted via Starlette `StaticFiles` — *zero new runtime dependency* (StaticFiles
@@ -1827,18 +2093,28 @@ dependency, extra RAM, and cross-origin calls* — breaking the "no new dependen
 thesis the feature rests on. **Recommendation:** static SPA. **Human owns:** whether hand-writing the frontend
 is an acceptable use of effort, or the team would rather pay the footprint cost. The single biggest scope lever
 — pick before Phase 2.
+**Reviewer ruling (2026-07-03): static SPA confirmed** — no new dependency, and also load-bearing for
+F10's embedded-samples design.
 
-**2. F4 and F5's optional DB columns: migrate now, or defer.** Both features work *fully* without their
-column: F5's `/stats` computes every aggregate from existing `query_log` columns; F4's `calibrate` returns the
-score in its response and only *persists* it if `set_reliability` exists (behind `hasattr`). The columns add:
+**2. F4 and F5's optional DB columns: migrate now, or defer.** The *no-column* versions work fully:
+F5's `/stats` computes every aggregate from existing `query_log` columns; F4's `calibrate` returns the
+score in its response. But the `hasattr` guards give **commit-level separability only, not DB
+tolerance** — once a column commit ships, an unmigrated deployment does not degrade, it **500s**: with
+`reliability` in `DOCUMENT_COLUMNS`, every document `SELECT` (`get_document`/`list_documents`/
+`find_by_sha256`) raises UndefinedColumn → every `/query` and all ingestion fail; with `cache_source`
+in `log_query`'s INSERT, every `/query` fails *after* paying full inference. The columns would add:
 F5 → a memory/disk/recomputed *residency distribution* on `/stats` (and closes the gap that `cag.py`
 computes `cache_source` at query time but never persists it); F4 → `reliability` on `GET /documents`. **The
 cost of "now":** these are the **first-ever migrations** in the repo, so shipping them establishes the
 migration *pattern and discipline* — every existing deployment must run `psql … < 00N_*.sql` by hand because
-`schema.sql` only runs on a fresh volume. **Recommendation:** ship the **no-column versions first** (both
-specs are written to), take the columns as **separable trailing commits** the reviewer can keep or drop; if
-kept, use the assigned numbering (F5 `001_cache_source.sql`, F4 `002_reliability.sql`). **Human owns:** are we
-ready to own migrations (and the manual-apply burden) in this PR, or defer both columns?
+`schema.sql` only runs on a fresh volume, and (per the above) skipping it is an outage, not a degraded mode.
+**Reviewer ruling (2026-07-03): DEFER — cut from this build.** The two column commits (F5 step 7, F4
+step 5) and `database/migrations/001/002` do NOT ship in this PR. `/stats` and `/calibrate` ship
+without persistence (stats reads existing `query_log` columns; calibrate returns results in the
+response). The migration specs (F5 step 7, F4 step 5) stay as the blueprint for a follow-up PR, which
+MUST add a startup capability probe (try `SELECT reliability FROM documents LIMIT 0` /
+`SELECT cache_source FROM query_log LIMIT 0` at `Database` init, set feature flags) so unmigrated
+deployments degrade instead of 500.
 
 **3. F6 converter default: cloud vs. local, and whether to default one at all.** F6 ships `PREPARE_CMD`
 **unset by default**. The text-layer path needs *no* converter and never shells out; only scanned/image/chart
@@ -1848,6 +2124,9 @@ vision — document never leaves the machine) and cloud (faster, *but the docume
 cloud converter (that would silently exfiltrate documents). **Human owns:** whether to pre-fill a *local*
 default like `marker` (better first-run, but forces `pip install marker-pdf` on users who never touch a
 scanned PDF) or keep it opt-in.
+**Reviewer ruling (2026-07-03): `PREPARE_CMD` stays empty by default** — F6's own guided-error test and
+bare-install acceptance assume it — **and `PREPARE_OUT_FOLDER` defaults to the `./prepared` staging
+folder**, not the watch folder, so human review happens before anything can be ingested.
 
 **4. F2: ship as workflow-only, or add a `/gate` endpoint.** The plan ships F2 as **pure n8n orchestration**
 (zero core code, zero new tests) — the gate logic stays visible/editable by non-technical operators and adds
@@ -1857,15 +2136,22 @@ existing endpoints and apply a boolean," which the workflow already expresses; t
 promote to an endpoint *only when the Set-node expression is no longer enough*. **Recommendation:**
 workflow-only for now. **Human owns:** whether the team wants a testable/reusable `/gate` endpoint despite the
 thin logic.
+**Reviewer ruling (2026-07-03): workflow-only confirmed** — the gate needs no If node (a computed
+boolean Set field + the shipped `onError` error-output pattern covers it), and it keeps F2's code
+artifact file-disjoint from every other feature.
 
 **5. Gate the web UI behind `WEBUI_ENABLED` — and if so, default on or off?** F9 can mount `/ui`
 **unconditionally** (whenever `api/app/webui/` exists — the `_webui_dir.is_dir()` guard already prevents a boot
 crash) or **behind a `WEBUI_ENABLED` flag** wired through the three-places rule. A flag lets a security-conscious
 operator turn the browser face off entirely (defense-in-depth on an unauthenticated, loopback-bound stack), at
-the cost of one more knob to keep in sync across three compose variants (the CI `validate` job fails the PR if
-they drift). The counter-argument: the UI is *already* loopback-only and carries a prominent security-boundary
-warning; a flag defaulting to `true` adds ceremony without changing the default posture. **Recommendation:**
-add `WEBUI_ENABLED` **defaulting to `true`** — cheap insurance, and the specs already carry the three-places
-edits and a `test_webui_disabled_returns_404` guard. **Human owns:** (a) flag or no flag, and (b) if flag,
-default `true` (convenience) or `false` (opt-in — safer but hurts the zero-install first-run that is the entire
-point of F9). Note the tension: defaulting `false` partly defeats "run `start`, open a URL, done."
+the cost of one more knob to keep in sync (`config.py` + the base `docker-compose.yml` `cag-api` env block +
+`.env.example` — the gpu/vulkan overlays carry no `cag-api` service; the CI `validate` job fails the PR if
+the places drift). The counter-argument: the UI is *already* loopback-only and carries a prominent
+security-boundary warning; a flag defaulting to `true` adds ceremony without changing the default posture.
+**Recommendation:** add `WEBUI_ENABLED` **defaulting to `true`** — cheap insurance, and the specs already
+carry the config/compose/`.env.example` edits and a `test_webui_disabled_returns_404` guard. **Human owns:**
+(a) flag or no flag, and (b) if flag, default `true` (convenience) or `false` (opt-in — safer but hurts the
+zero-install first-run that is the entire point of F9). Note the tension: defaulting `false` partly defeats
+"run `start`, open a URL, done."
+**Reviewer ruling (2026-07-03): ship `WEBUI_ENABLED`, default `true`, wired in the base
+`docker-compose.yml` `cag-api` block only** (the gpu/vulkan overlays have no `cag-api` block).
