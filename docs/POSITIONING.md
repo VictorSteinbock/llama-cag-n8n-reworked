@@ -100,12 +100,13 @@ bigger than the context window. Teams needing multi-user auth.
      Studio holds a *shelf* of 100k-token documents hot in parallel slots
      (`CAG_SLOTS`), and the sweep workflow answers hundreds of questions for
      the cost of one read — docs/HARDWARE.md is the supporting artifact.
-     **Strongest hook for this crowd: the MCP angle** — "a local MCP tool that
-     stops Claude Code from re-reading (and re-paying for) a 28k-token spec on
-     every task; only the question and answer cross the boundary." Local-first
-     + cloud-agent cost saving is exactly what r/LocalLLaMA rewards; show the
-     one-line token arithmetic (~40 tokens out vs. 28k re-sent each turn) and
-     the `claude mcp add cag` snippet.
+     **Strongest hook for this crowd: the MCP angle** — "a local MCP tool so a
+     28k-token spec never occupies Claude Code's context: not this session, not
+     after compaction, not next month; only questions and answers cross the
+     boundary." Keep the claims bulletproof (provider prompt caching exists —
+     the wins are context occupancy, fresh-session/compaction re-reads, and
+     zero metering): ~40 tokens of question vs. a seventh of a 200k window
+     occupied all session. Show the `claude mcp add cag` snippet.
    - n8n community forum — automation angle: folder-drop → queryable webhook.
    - Show HN — only after a stranger has successfully quick-started.
 4. Cross-link both repos ("engine ↔ desktop control room"), credit the
