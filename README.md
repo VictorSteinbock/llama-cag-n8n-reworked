@@ -84,12 +84,39 @@ Three strategy decisions are baked in, so there is nothing to manage:
 - **Fresh context by default.** A `/query` without `history` is a clean-room
   question against the document; pass `history` when you *want* a conversation.
 
-**Memory behaviour, precisely:** RAM usage is the model weights plus **one
-fixed KV pool** sized by `LLAMA_CTX_SIZE` (halved by `q8_0`), allocated at
-startup — it does **not** grow as you add documents. Documents cost *disk*
-instead (one cache file each; the nightly maintenance report shows
-`cache_bytes`). So a hundred ingested documents and one ingested document use
-the same RAM — the slots just decide which few are instant at any moment.
+### Resource anatomy — what uses what, when
+
+If earlier CAG experiments left you wary of mystery memory pressure, here is
+the whole resource story. There is exactly **one big constant** and everything
+else is a burst:
+
+| What's happening | Compute (CPU/GPU) | Memory | Disk |
+|---|---|---|---|
+| **Stack up, idle** | ~zero | **The constant:** model weights (~6.5 GB default) + the fixed KV pool — allocated once at startup, flat forever after | — |
+| Ingest / warm a document | Sustained — the one real workload (minutes on CPU, far less accelerated) | No change (the pool already exists) | One write burst: the cache file |
+| Question on a hot document | Brief burst (question + answer tokens only) | No change | — |
+| First question after restart | ~none — no re-processing | No change | One read burst (cache file → pool) |
+| Self-heal (lost/invalid cache) | One ingest-worth, once | No change | Rewrites the cache file |
+| **Adding more documents** | — | **No change — ever** | +1 file each (`cache_bytes` in the nightly report) |
+| Switching models | — | New constant after restart | One-time download; old caches sit stale until re-warm or cleanup |
+
+**The pressure knob is the pool, and you own it:** pool size ≈
+`LLAMA_CTX_SIZE` × slots' KV cost — halved already by the default `q8_0`
+quantization, and scaled by your model choice. Too much pressure → lower
+`LLAMA_CTX_SIZE`, pick a smaller model, or keep `CAG_SLOTS=1`
+([docs/HARDWARE.md](docs/HARDWARE.md) has the arithmetic per tier). With GPU
+offload the weights and pool live in VRAM instead (`--gpu-layers`); on unified
+memory (Apple/Strix Halo) it's all one pool — which is why those machines are
+this architecture's natural home.
+
+**And it's observable, not asserted:** `python llamacag.py status` now prints
+live per-service CPU/RAM; llama-server's startup log states its exact
+weights/KV allocations (`python llamacag.py logs llama-server`); the nightly
+maintenance report tracks cache disk. Contrast with v1, which loaded the model
+*and* whole pickled cache states inside the desktop app's own process — RAM
+pressure that grew with use and answered to nothing. v2's footprint is one
+predictable allocation in one container, tunable from `.env`, with documents
+scaling on disk.
 
 ## Where this shines
 

@@ -286,7 +286,39 @@ def cmd_status(_: argparse.Namespace) -> int:
             except json.JSONDecodeError:
                 pass
         print(f"{marker} {name:<13} HTTP {status} {url}{detail}")
+
+    print_resource_snapshot()
     return 0
+
+
+def print_resource_snapshot() -> None:
+    """Live per-service CPU/RAM so memory pressure is never a mystery.
+
+    The big constant is llama-server: model weights + the KV pool, both
+    allocated at startup and flat afterwards (documents cost disk, not RAM).
+    llama-server's own startup log prints the exact weights/KV allocation."""
+    probe = subprocess.run(
+        [
+            "docker", "stats", "--no-stream",
+            "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}",
+        ],
+        capture_output=True, text=True, cwd=PROJECT_ROOT,
+    )
+    rows = [
+        line.split("\t")
+        for line in probe.stdout.splitlines()
+        if line.startswith("llamacag-")
+    ]
+    if probe.returncode != 0 or not rows:
+        return
+    print()
+    print("Resources (live):")
+    print(f"  {'service':<18} {'cpu':>8}   memory")
+    for name, cpu, mem in sorted(rows):
+        print(f"  {name:<18} {cpu:>8}   {mem}")
+    print("  (llama-server RAM = model weights + fixed KV pool, allocated at")
+    print("   startup and flat afterwards; documents cost disk, not RAM.")
+    print("   Exact allocation breakdown: python llamacag.py logs llama-server)")
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
