@@ -91,6 +91,11 @@ bigger than the context window. Teams needing multi-user auth.
 3. Posts (each shows the timings screenshot + hero):
    - r/LocalLLaMA — "I built a local stack where the model reads your document
      exactly once (persistent KV cache + n8n automation)". Lead with numbers.
+   - Timeliness hook: Karpathy's LLM Wiki (April 2026) made "compounding
+     knowledge, read once" mainstream — position this stack as the *serving
+     layer* for that pattern (the wiki curates; this pins and serves it whole,
+     locally), plus the temperature-0 "grounding oracle" as a hallucination
+     hash-check for agent output.
    - Unified-memory angle for the same crowd: a 128 GB Strix Halo box or Mac
      Studio holds a *shelf* of 100k-token documents hot in parallel slots
      (`CAG_SLOTS`), and the sweep workflow answers hundreds of questions for

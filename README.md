@@ -158,6 +158,44 @@ while only the questions and answers ever occupy the agent's own context.
 parallel slots — see [docs/HARDWARE.md](docs/HARDWARE.md) for per-tier model
 recommendations, `.env` presets, and the native-Mac (Metal) recipe.
 
+### LLM wikis, second brains — and the grounding oracle
+
+Karpathy's **LLM Wiki** pattern (April 2026) argues that knowledge should
+*compound*: sources get read once and integrated into an interlinked,
+AI-maintained wiki, instead of being rediscovered by retrieval on every query —
+"the wiki is the product, the chat is just the interface." Notice what that
+pattern *produces*: one dense, curated, self-consistent canonical document.
+**That is exactly the input shape this stack exists to serve.** The wiki (or
+your second brain — an Obsidian vault digest, a research corpus summary) goes
+in the watch folder; from then on it is pinned, whole, in local KV state. The
+two patterns compose cleanly: the wiki layer *curates* knowledge, this layer
+*serves* it — read once, ask forever, updated automatically on re-drop.
+
+It also genuinely **enhances** the wiki pattern in two ways. First, coherence:
+a wiki's defining feature is its cross-references — and retrieval breaks them
+by fetching one page at a time, while whole-document context sees every page
+and every link *simultaneously* on every answer. Second, economics: the
+compounding knowledge stops re-entering anyone's context window; agents consult
+it as a tool (MCP) instead of carrying it.
+
+And then there's the sharpest use: **the grounding oracle** — a hash check for
+facts. At `temperature 0` with the built-in rule ("answer only from the
+document; say so if absent"), the pinned canon becomes a *deterministic
+verifier*: same claim + same document → same verdict, every time.
+
+```mermaid
+flowchart LR
+    A["🤖 Agent drafts a claim<br/>(cloud model, notes, memory)"] --> V{"ask_document:<br/>'Does the canon support this?<br/>Quote the passage or say ABSENT.'"}
+    V -- "supported + quote" --> OK["✅ proceed, cited"]
+    V -- "ABSENT / contradicts" --> FLAG["🚩 flag before it ships"]
+```
+
+A cloud agent drafts; one cheap local call checks the draft against the source
+of truth *before it ships*. The sweep workflow batch-verifies a whole claims
+list the same way. Second brains and LLM wikis organize knowledge — this gives
+them teeth: the knowledge stops being something the model vaguely remembers
+and becomes something it must consult, and can be caught deviating from.
+
 ## Architecture
 
 <p align="center">
