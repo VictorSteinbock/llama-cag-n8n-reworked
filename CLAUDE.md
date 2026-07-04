@@ -46,6 +46,10 @@ docker compose config -q             # validate compose (requires .env or env va
   the `${VAR:-default}` fallbacks in all docker-compose*.yml files, and
   `api/app/config.py`. The compose GPU/Vulkan overrides replace the llama
   command wholesale — edit all three command blocks together.
+- The four cache-persistence guards in every llama command block (`--swa-full`,
+  `--no-mmproj`, `--cache-ram 0`, `--ctx-checkpoints 0`) are restore-correctness
+  requirements for sliding-window models (all Gemma) — don't remove them, and
+  keep llama-server builds >= 2026-04-24 (docs/ROADMAP.md F16 has the evidence).
 
 ## Conventions
 

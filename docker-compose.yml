@@ -17,6 +17,14 @@ services:
     # first boot (~6.5 GB for the default model), then runs offline.
     # q8_0 KV cache quantization halves context memory at negligible quality
     # cost (flash attention is auto-enabled on supported backends).
+    # Cache-persistence guards (keep all four, in all three compose files):
+    # --swa-full is REQUIRED for saved slot states to restore correctly on
+    # sliding-window-attention models (all Gemma) and needs a server built on/
+    # after 2026-04-24 — it sizes KV by the full context on every layer (no SWA
+    # discount), which is the RAM price of trustworthy restores. --no-mmproj,
+    # --cache-ram 0 and --ctx-checkpoints 0 keep the multimodal projector and
+    # the newer host-RAM cache/checkpoint paths (where the open SWA cache bugs
+    # live) away from slot persistence. Evidence: docs/ROADMAP.md F16.
     command: >
       -hf ${LLAMA_MODEL:-google/gemma-4-12B-it-qat-q4_0-gguf}
       --ctx-size ${LLAMA_CTX_SIZE:-65536}
@@ -24,6 +32,10 @@ services:
       --cache-type-k ${LLAMA_CACHE_TYPE_KV:-q8_0}
       --cache-type-v ${LLAMA_CACHE_TYPE_KV:-q8_0}
       --slot-save-path /caches
+      --swa-full
+      --no-mmproj
+      --cache-ram 0
+      --ctx-checkpoints 0
       --host 0.0.0.0
       --port 8080
       --threads ${LLAMA_THREADS:--1}
