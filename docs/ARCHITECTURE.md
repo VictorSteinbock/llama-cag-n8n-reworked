@@ -127,10 +127,13 @@ document prefix stays byte-identical) and returns a strict verdict
 The engine then **mechanically** checks that the model's `quote` actually occurs in the
 source bytes (`api/app/grounding.py`, stdlib `difflib`): an exact normalized substring, or
 an anchored-window fuzzy match above `QUOTE_MATCH_THRESHOLD`. This hardens
-`supported`/`contradicted` (a passage exists to check) but cannot harden `absent`
-(`quote_grounded=null`), and it verifies the quote's *existence*, not the claim's
-*entailment*. `conditions` surfaces a scope the document places on the claim (e.g.
-"only if defective") so a conditional isn't mislabeled.
+`supported`/`contradicted` (a passage exists to check); `absent` (`quote_grounded=null`)
+has no quote to check, so the response carries a **recall probe** instead
+(`recall.max_overlap`, same module): the claim's own vocabulary is scanned across the
+document, so near-zero overlap corroborates the absence mechanically while high overlap
+flags a possible missed passage or twisted claim for escalation. The byte-check verifies
+the quote's *existence*, not the claim's *entailment*. `conditions` surfaces a scope the
+document places on the claim (e.g. "only if defective") so a conditional isn't mislabeled.
 
 ## Data model (`llamacag` database)
 

@@ -33,6 +33,14 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 | F13 | Auto-generated calibration battery | Tooling | S | Ready |
 | F14 | Per-document prompt boundary marker (hostile-canon hardening) | Core upgrade | S | Design-first |
 | F15 | Deferred DB columns (`cache_source`, `reliability`) + capability probe | Follow-up | S | Ready |
+| F16 | SWA cache-persistence hardening (compose guards) | Core fix | XS | Shipped (main) |
+| F17 | Mechanical recall probe for `absent` (`recall` field) | Core upgrade | S | Shipped (main) |
+| F18 | Veto-hook gating (OpenClaw / Hermes adapters) | Core upgrade | S | Shipped (main) |
+| F19 | mem0 write interceptor (`GroundedMemory`) | New capability | S | Ready |
+| F20 | Paraphrase probes for `absent` (`?probes=k`) | Core upgrade | S | Ready |
+| F21 | Optional NLI sidecar (HHEM-class second opinion) | New capability | M | Design-first |
+| F22 | Quote-by-ID verify mode (fabrication impossible by construction) | Core upgrade | M | Design-first |
+| F23 | llm-wiki source-layer recipe + wiki lint | Composition | S | Ready |
 
 Still gating the **v2.1 tag** (not a feature): the Phase-4 live-model
 verification run from
@@ -88,10 +96,12 @@ and it is what the README's oracle section now points here for.
 
 **What it catches / doesn't.** Hardens the two evidence-bearing verdicts
 (`supported`, `contradicted` — both come with a passage that must exist).
-Cannot harden `absent` (no quote by definition) and cannot verify *entailment*
-(a real quote that doesn't actually support the claim). Those limits are stated
-in the README and are the reason F4 (reliability) and the fail-safe gate (F2)
-exist.
+`absent` has no quote by definition, so it gets a different mechanical check —
+the **recall probe** (F17): near-zero vocabulary overlap corroborates the
+absence, high overlap flags it for escalation. Entailment (a real quote that
+doesn't actually support the claim) remains the model's judgement. Those limits
+are stated in the README and are the reason F4 (reliability) and the fail-safe
+gate (F2) exist.
 
 **Affected components.** New endpoint in `api/app/main.py`; new method in
 `api/app/cag.py`; a pure helper module `api/app/grounding.py`; the
@@ -462,17 +472,86 @@ including a Verify example that shows a `contradicted` catch.
 Shipped on main (see [docs/AGENTS.md](AGENTS.md) for the design and
 [`../integrations/`](../integrations) for the code): the framework-agnostic
 `cag_gate` package (fail-safe `GroundingGate` with the fabricated-quote check
-and the **evidence floor** `min_grounded_quote_chars`, 15 unit tests), the
+and the **evidence floor** `min_grounded_quote_chars`, 19 unit tests), the
 Hermes Agent plugin (`cag_verify`/`cag_ask`/`cag_remember` tools, reactive
 `post_tool_call` tripwire, `CAG_OVERRIDE_MEMORY=1` hard gate,
 `CAG_ABSENT_TO_MEMORY=1` episodic-memory tagging), the OpenClaw `cag-verify`
-skill (stdlib-only, fail-closed exit codes), and a CI job. Anything still
-listed below is *not* part of this.
+skill (stdlib-only, fail-closed exit codes), and a CI job. Since then the gate
+learned the `absent` recall split (F17) and both adapters gained veto-hook
+enforcement (F18). Anything still listed below is *not* part of this.
+
+### F16 — SWA cache-persistence hardening (compose guards)
+
+Shipped on main (2026-07 field recon). llama.cpp requires `--swa-full` for slot
+save/restore to be trustworthy on sliding-window-attention models — which is
+**all Gemma, including our default**: without it the restored cache can cover
+tokens the SWA layers pruned. And before the fix merged upstream on
+**2026-04-24** ([PR #22288](https://github.com/ggml-org/llama.cpp/pull/22288)),
+even correctly-flagged servers re-processed the full prompt on every request
+after a restore — silently destroying the pay-once economics. Our own receipt
+is the detector: `prompt_tokens_evaluated` ≈ the whole document instead of the
+question means you are on a broken build.
+
+All three compose command blocks now pin four guards (and CLAUDE.md lists them
+as an invariant): `--swa-full`; `--no-mmproj` (cache reuse is incompatible with
+a loaded multimodal projector, and `-hf` can auto-fetch one for vision-capable
+models); `--cache-ram 0` and `--ctx-checkpoints 0` (the newer host-RAM
+cache/checkpoint paths are where 2026's open Gemma cache bugs cluster —
+[#22527](https://github.com/ggml-org/llama.cpp/issues/22527),
+[#24265](https://github.com/ggml-org/llama.cpp/issues/24265),
+[#21831](https://github.com/ggml-org/llama.cpp/issues/21831) — and we restore
+explicit slot states instead). Cost stated honestly: `--swa-full` sizes KV by
+the **full context on every layer** — no sliding-window RAM discount
+(`.env.example` says so next to `LLAMA_CTX_SIZE`). Minimum server build
+2026-04-24; the rolling `:server` tag and the documented `b9859` pin both
+qualify. Background: [persistent-KV tutorial (discussion #20572)](https://github.com/ggml-org/llama.cpp/discussions/20572),
+[Gemma cache-reuse issue #21468](https://github.com/ggml-org/llama.cpp/issues/21468),
+[upstream "not planned" on disk persistence #17107](https://github.com/ggml-org/llama.cpp/issues/17107).
+
+### F17 — Mechanical recall probe for `absent` (`recall` field)
+
+Shipped on main. The old honest line was "grounding cannot harden `absent`";
+the 2026-07 recon found the fix hiding in our own machinery: **run the quote
+check in reverse.** `recall_probe()` (`api/app/grounding.py`) scans the
+*claim's* distinctive vocabulary (≥4-char words + bare numbers, minus a small
+stopword list) across the normalized document with a sliding co-occurrence
+window, and `POST /verify` attaches
+`recall: {max_overlap, checked_tokens, excerpt}` to every `absent` verdict
+(`max_overlap: null` = too little signal, treat as inconclusive). Zero extra
+model calls, pure stdlib, linear in matches.
+
+Downstream: the gate splits `absent` on `Policy.absent_recall_overlap`
+(default 0.5) — near-zero overlap keeps the old quarantine path with a
+corroborating number in the audit trail; **absent-but-topic-present** (the
+canon clearly discusses this vocabulary: a possible missed passage or twisted
+claim) escalates and is **never stored, not even `[unverified]`** — the Hermes
+episodic path checks the tag. The OpenClaw checker and the MCP `verify`
+rendering surface the same split. Literature cross-check: abstention is the
+verdict models are worst at, and scaling does not fix it
+([AbstentionBench, arXiv 2506.09038](https://arxiv.org/abs/2506.09038)) —
+mechanical scaffolding is the right bet, and F20 adds the semantic layer.
+
+### F18 — Veto-hook gating for the OpenClaw + Hermes adapters
+
+Shipped on main. Both target frameworks grew **blocking hooks** in 2026
+(OpenClaw `before_tool_call` → `{block, blockReason, requireApproval}`; Hermes
+`pre_tool_call` → `{"action": "block", "message": …}`), so the adapters no
+longer treat hooks as observers-only. The Hermes plugin now hard-blocks
+ungrounded direct memory writes in `pre_tool_call` (recording a `pre-block:`
+quarantine line; stepping aside under `CAG_OVERRIDE_MEMORY=1`, degrading to
+the tripwire on older builds), and the OpenClaw README ships a
+`before_tool_call` gate snippet (block on ungrounded; `requireApproval` on
+absent-but-topic-present). Preferred over re-registering memory tools — dynamic
+tool registration has open reliability issues upstream. Kept honest: written
+against the mid-2026 hook docs, not live-tested against agent installs — the
+standing Phase-4 caveat applies.
 
 ## Post-audit backlog (added 2026-07-04)
 
-Three items born from the external hardening + utility audits. Same contract as
-above: executable without further context.
+Born from the external hardening + utility audits (F12–F15) and the 2026-07
+field recon (F19–F23). Same contract as above for anything marked **Ready**:
+executable without further context. **Design-first** items state the decision
+that must precede code.
 
 ### F12 — Async ingest (202 + status poll)
 
@@ -558,6 +637,114 @@ already exists (`set_reliability` no-ops until the column lands).
 
 **Done when.** A fresh deployment gets both features; an unmigrated one keeps
 working with them dark.
+
+### F19 — mem0 write interceptor (`GroundedMemory`)
+
+**What & why.** mem0 is the most widely embedded OSS memory layer, and its
+current pipeline is **add-only**: extracted facts are stored without
+overwriting or verification, conflicts resolved at read time — with an open,
+unanswered feature request for memory-poisoning protection
+([mem0ai/mem0#5331](https://github.com/mem0ai/mem0/issues/5331)). One
+interceptor covers every mem0-backed framework at once — more distribution
+than the two bespoke adapters combined.
+
+**Sketch.** `integrations/mem0/cag_mem0.py`: a `GroundedMemory` wrapper (not a
+fork) around the mem0 client. `add()` runs each candidate fact through the
+tested `GroundingGate` first — supported+grounded delegates to the real
+`add()`; contradicted/fabricated goes to a quarantine list and is skipped;
+`absent` follows gate policy (quarantine, or tagged-store where mem0 metadata
+allows, mirroring `CAG_ABSENT_TO_MEMORY`; absent-but-topic-present never
+stores). Everything else (`search()`, `get_all()`, …) passes through untouched.
+
+**Tests.** A fake mem0 client in `integrations/tests`; the decision matrix
+mirrors `test_gate.py`; the smoke harness gains a `GroundedMemory` trace
+(poison stream in, only grounded facts reach the fake store).
+
+**Done when.** `GroundedMemory(client, gate).add("the rate limit is 1000
+req/s")` demonstrably refuses the poison while the plain client stores it.
+
+### F20 — Paraphrase probes for `absent` (`?probes=k`)
+
+**What & why.** F17 checks *vocabulary*; this checks *semantics*. An `absent`
+verdict from one phrasing can flip when the claim is re-asked in different
+words (metamorphic probing — the only known black-box hardener for a negative
+verdict). Uniquely cheap on THIS architecture: every probe rides the pinned
+document prefix, so the marginal cost is decode-only on a handful of tokens.
+
+**Sketch.** `POST /verify` gains `probes: k` (default 0 = today's behavior).
+The engine re-derives the verdict k extra times with template-varied verify
+instructions (paraphrase the claim, decompose a compound claim), all riding
+the byte-identical document prefix (invariant 1 — the variation lives in the
+user turn). `absent` stands only if **all** probes agree; any probe returning
+`supported`/`contradicted` wins, its quote passing the normal byte-check.
+Response gains `probes: {n, agreement}`. Default stays 0 and the docs say why:
+k extra generations are real seconds on CPU — turn it on for gates, not chat.
+
+**Tests.** Fakes scripting divergent probe answers (agreement, one-dissenter,
+all-absent); prefix byte-identity assertion across probes; `probes` capped
+(422 naming the knob) so a caller can't queue unbounded generations.
+
+**Done when.** A probed `absent` reports its agreement, and the sample-canon
+calibration battery shows a lower false-absent rate with `probes: 2`.
+
+### F21 — Optional NLI sidecar (HHEM-class second opinion) — Design-first
+
+**What & why.** Every verdict today is the same model grading its own
+homework. A small cross-encoder from a *different* model family, run beside
+llama.cpp, breaks that circularity: chunk-max entailment over the document as
+a second opinion on `supported`/`contradicted`, and an exhaustive sweep that
+attention can't skip for `absent`. License-driven shortlist (the accuracy
+leaders are all CC-BY-NC and disqualified): **HHEM-2.1-Open** (Apache-2.0,
+~110M, <600 MB RAM, ~1.5 s per 2k-token premise on x86 CPU) first;
+MiniCheck-Flan-T5-Large (MIT, 770M) as the higher-accuracy option.
+
+**Why design-first, not code.** None of the CPU-class checkers is
+GGUF/llama.cpp-runnable (encoder / T5-classifier architectures) — this is a
+new optional container (transformers/ONNX), a new compose profile, and a
+default-off wiring decision. The gate semantics are already settled:
+disagreement → **escalate** (fail-closed unchanged, never auto-overrule).
+Decide packaging and RAM budget before building.
+
+### F22 — Quote-by-ID verify mode — Design-first
+
+**What & why.** Strictly stronger than post-hoc matching: the oracle cites a
+**sentence index** and the API returns the literal sentence from the stored
+content — fabrication becomes impossible *by construction* (the pattern behind
+Anthropic's Citations API and "Deterministic Quoting", self-hosted). The
+current fuzzy byte-check stays as the fallback for free-form quotes.
+
+**Why design-first, not code.** Needs per-document sentence segmentation
+(stored at ingest, or computed at verify time), a verdict-schema change
+(`sentence_id` alongside `quote`), and a decision on how the two modes
+compose. The verify instruction rides in the user turn so the cached prefix is
+untouched, but the schema change ripples through `/verify` consumers (gate,
+adapters, MCP rendering, n8n workflows) — version the response deliberately.
+
+### F23 — llm-wiki source-layer recipe + wiki lint
+
+**What & why.** Karpathy's llm-wiki pattern (Apr 2026) has three layers; two
+are shaped exactly like this stack's input — **raw sources are immutable by
+rule**, the schema file is near-static — and the pattern's publicly named gap
+is verification for the LLM-maintained wiki layer (stale and invented claims
+accumulate; every serious critique says the lint pass is the weak point).
+Don't compete with RAG vaults on the churny wiki layer; **be the trust layer**:
+pin the sources, mechanically lint the wiki against them.
+
+**Sketch.** A documented recipe plus thin glue, no new API. (1) Pin each raw
+source on drop — the watch folder already does this. (2) `wiki-lint`: take a
+wiki page, extract its claim lines (bullets / sentences), batch them through
+the existing claim-verification webhook against the page's cited source
+document, and emit a per-line report: supported (with quote), contradicted
+(with quote), absent-corroborated, absent-suspicious (F17 recall). Package as
+an n8n workflow or a small CLI helper in `integrations/`; surface it from the
+README's "composes with LLM wikis" section.
+
+**Tests.** Run the lint over the bundled sample documents plus a deliberately
+drifted wiki page; the report calls out exactly the drifted lines.
+
+**Done when.** `wiki-lint page.md --source 7` (or the webhook equivalent)
+produces the per-line verdict report, and a drifted line is caught with the
+contradicting quote attached.
 
 ## Tier 3 — reworks that need a decision first
 

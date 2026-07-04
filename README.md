@@ -218,7 +218,12 @@ retrieval miss) and must quote its evidence, and `POST /verify` **mechanically**
 checks that quote against the source — so a fabricated citation is caught
 automatically (`quote_grounded: false`), no extra model call. But grounding is
 **asymmetric**: it hardens `supported`/`contradicted` (there is a passage to
-check) but **cannot** harden `absent` (`quote_grounded: null`), and it verifies
+check), while `absent` (`quote_grounded: null`) has no quote to check at all —
+so `absent` gets its own mechanical check, the **recall probe** (the `recall`
+field): the claim's own vocabulary is scanned across the whole document, and
+near-zero overlap corroborates the absence with an auditable number while high
+overlap warns that the topic *is* discussed and the verdict deserves a human
+look (the agent gate escalates exactly that case). And the byte-check verifies
 the quote's *existence*, not the claim's *entailment* — the model can still
 misread real evidence, and a three-word generic fragment grounds trivially (the
 agent gate's evidence floor exists for exactly that). Treat it as a **fail-safe
@@ -297,7 +302,13 @@ it as a tool (MCP) instead of carrying it.
 
 Second brains and LLM wikis organize knowledge — this gives them teeth: the
 knowledge stops being something the model vaguely remembers and becomes
-something it must consult, and can be caught deviating from.
+something it must consult, and can be caught deviating from. The same check
+also runs in reverse over the wiki itself: pin a raw source, sweep a wiki
+page's claims through the verify webhook, and every line that no longer matches
+its source comes back flagged with a quote — a mechanical lint for the wiki
+layer's known failure mode (stale or invented claims, the one gap named in
+every public critique of the pattern). The packaged recipe is sketched as
+[F23 in the roadmap](docs/ROADMAP.md).
 
 <p align="center">
   <img src="docs/images/verify-workflow.svg" alt="The bundled claim-verification workflow as a node graph: webhook → split claims → HTTP verify → collect verdict / mark failure → aggregate → respond." width="100%">
@@ -489,6 +500,14 @@ tokens. **Numbers, not adjectives — that's the whole point.** (The JSON above
 is an illustrative response — the *shape* is guaranteed by the mechanism, and
 your own first query prints the real receipt.)
 
+For scale: hosted context caches either expire in minutes or meter the pin by
+the hour (Gemini's explicit cache bills a storage fee per token-hour held). The
+`.bin` file on your disk is the same idea with a storage fee of zero, forever.
+And the mechanism has independent validation now: [arXiv 2603.04428](https://arxiv.org/abs/2603.04428)
+(Feb 2026) persists quantized KV state to disk on Mac-class hardware with a
+Gemma-class 12B and reports time-to-first-token cut by two orders of magnitude —
+the same primitive this stack packages.
+
 ## Use it from Claude Code (MCP)
 
 The `mcp/` package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
@@ -574,6 +593,13 @@ stack is the fix: pin your source of truth as the canon and make `/verify` a
 and contradicted / absent / fabricated-quote facts are quarantined instead of
 trusted. The canon lives in the KV cache, *outside* the agent's memory, so it
 can't be poisoned by the agent's own drift.
+
+The threat has an official name now — **ASI06 "Memory & Context Poisoning"** in
+[OWASP's Agentic Top-10](https://genai.owasp.org/) (Dec 2025) — and the reference
+tooling in that space screens writes with pattern and anomaly detectors. This
+gate is the complementary layer those detectors don't attempt: it checks the
+*fact itself* against a pinned ground truth. Detectors catch attack artifacts;
+the gate catches false facts.
 
 Working code and per-framework recipes live in [`integrations/`](integrations/) —
 a tested, framework-agnostic `GroundingGate` plus a Hermes Agent plugin and an
@@ -945,16 +971,21 @@ option instead of a science project.
 
 The upgrades that make the **grounding oracle** honest and trustworthy have
 **already shipped**: the mechanical quote-grounding check
-([`POST /verify`](#the-api)), per-canon reliability
+([`POST /verify`](#the-api)), the recall probe that corroborates `absent`
+verdicts with a number, per-canon reliability
 [calibration](#know-your-canons-reliability), the
 [answer-gating pattern](#gating-a-support-bots-answers) for support bots,
 structured-verdict scope fields, usage & cost observability (`GET /stats`), an
 optional [PDF→Markdown preprocessor](#preparing-documents-pdfs-scans-tables),
-the zero-install web UI, and the
-[agent grounding gate](docs/AGENTS.md) (`integrations/`). What remains is a
-small post-audit backlog (async ingest, auto-drafted calibration batteries)
-plus **deliberately deferred, design-first** work — cross-document queries
-(concat / diff / federate) and multi-user / RBAC.
+the zero-install web UI, the
+[agent grounding gate](docs/AGENTS.md) (`integrations/`) with veto-hook
+enforcement for OpenClaw and Hermes, and the SWA cache-persistence guards that
+keep restores trustworthy on Gemma-family models. What remains is a post-audit
+backlog (async ingest, auto-drafted calibration batteries, a mem0 write
+interceptor, paraphrase probes, the llm-wiki lint recipe) plus **deliberately
+deferred, design-first** work — an NLI second-opinion sidecar, quote-by-ID
+verification, cross-document queries (concat / diff / federate), and
+multi-user / RBAC.
 Full plans for everything, from design to tests, live in
 **[docs/ROADMAP.md](docs/ROADMAP.md)**, written so a contributor can pick one up
 without this context — or open an issue to discuss one first.

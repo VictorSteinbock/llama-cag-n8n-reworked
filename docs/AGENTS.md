@@ -29,6 +29,14 @@ OpenClaw ships approval gates for high-*impact* actions but **no fact-checking a
 all**; Hermes exposes plugin hooks but its memory writes are ungoverned. Neither
 has an anchor to ground against.
 
+The threat is no longer a niche worry, either: OWASP's Agentic Top-10
+(Dec 2025) names it **ASI06 "Memory & Context Poisoning"**, and the reference
+tooling emerging under that label screens memory writes with pattern and
+anomaly detectors — valuable, and explicitly *not* fact-checking (its own docs
+note it does not verify claims against ground-truth documents). That is the
+slot this gate fills: **detectors catch attack artifacts; this gate catches
+false facts.**
+
 ## The idea: an immutable canon *outside* the loop
 
 Everything the agent believes lives in *its* memory, which is inside the feedback
@@ -65,16 +73,24 @@ an action, and it **fails closed**:
 | `supported` but quote **not** in source (fabricated) | quarantine | block |
 | `supported` but quote too short/generic to be evidence | quarantine | escalate |
 | `contradicted` | quarantine | block |
-| `absent` (canon doesn't mention it) | quarantine, tag `unverified` | escalate to human |
+| `absent`, recall probe near zero (canon really is silent) | quarantine, tag `unverified` | escalate to human |
+| `absent` **but** the recall probe finds the topic discussed | escalate, tag `absent-but-topic-present` | escalate |
 | oracle unreachable / unknown verdict | quarantine | escalate |
 
 Only `supported` **with a grounded, non-trivial quote** is ever trusted. The
 byte-check proves *existence*, not sufficiency — a generic fragment ("is the")
 grounds in any document, and an empty quote isn't even checkable — so the gate's
 **evidence floor** (`Policy.min_grounded_quote_chars`, default 12 collapsed
-chars, zero-width padding stripped) refuses those as evidence. `absent` is the
-honest weak spot — there is no passage to ground — so it is never auto-trusted
-as a fact.
+chars, zero-width padding stripped) refuses those as evidence. `absent` has no
+passage to ground, so it is never auto-trusted as a fact — but it is no longer
+taken purely on the model's say-so either: `/verify` runs a mechanical **recall
+probe** (does the claim's own vocabulary co-occur anywhere in the canon?), and
+the gate splits on it (`Policy.absent_recall_overlap`, default 0.5). Near-zero
+overlap means the canon genuinely doesn't talk about this: quarantine as before,
+now with a corroborating number in the reason. High overlap means the canon
+*does* discuss the topic — a possible missed passage, or a claim twisting
+something that is really there — and that case **escalates and is never
+stored**, not even tagged episodic.
 
 ## Where it factors in — the plumbing
 
@@ -88,13 +104,18 @@ Hermes plugins register tools and hooks in a `register(ctx)` entry point. The
 | `register_tool` | `cag_verify(claim)`, `cag_ask(question)` | Read-grounding |
 | `register_tool` | `cag_remember(fact)` — verify-then-store; quarantine the rest | **Consolidation (Write-Validation)** |
 | `register_tool(..., override=True)` | `CAG_OVERRIDE_MEMORY=1` replaces the built-in `memory` tool for *hard* enforcement | Consolidation |
+| `register_hook("pre_tool_call", …)` | **veto**: block an ungrounded direct memory write before it lands (current Hermes honors `{"action": "block"}` from this hook) | Consolidation |
 | `register_hook("post_tool_call", …)` | reactive net: flag a direct memory write the canon contradicts | Consolidation |
 | `register_hook("pre_llm_call", …)` | inject a one-line grounding reminder each turn | Steering |
 
-An honest caveat baked into the design: Hermes `pre_tool_call`/`post_tool_call`
-hooks are **observers** (their return value is ignored), so a hook cannot *veto* a
-write. Real gating therefore goes through the `cag_remember` tool (or `override=True`
-on `memory`), with the hook as a reactive safety net. Install steps:
+Enforcement reality, kept honest: current Hermes lets `pre_tool_call` **block**
+a tool call (the gate's reason is returned to the model as the tool error), so
+direct writes through the built-in memory tool are hard-gated by default.
+Older Hermes builds ignore hook return values — there the hook degrades to a
+no-op, the `post_tool_call` tripwire records what landed, and hard gating needs
+`CAG_OVERRIDE_MEMORY=1` (replace the memory tool outright). The override also
+remains the nicer UX for episodic tagging: writes come back as
+stored/quarantined/tagged results instead of errors. Install steps:
 [`../integrations/hermes/README.md`](../integrations/hermes/README.md).
 
 ### OpenClaw
@@ -102,12 +123,18 @@ on `memory`), with the hook as a reactive safety net. Install steps:
 OpenClaw skills are `SKILL.md` files that can call CLIs. The
 [`cag-verify` skill](../integrations/openclaw) ships a self-contained checker the
 agent runs before it stores a fact or sends a factual message; `exit 0` = trusted,
-`exit 1` = do not. Two higher-order recipes:
+`exit 1` = do not. Three recipes, in rising enforcement order:
 
 - **Compliance anchor** — pin your SOP/policy doc; make `cag-verify` a required
   pre-send step, fail-closed to the human approval OpenClaw already supports.
 - **Memory-hygiene cron** — a scheduled job re-verifies stored `MEMORY.md` facts and
   quarantines contradicted ones, countering uncontrolled memory growth.
+- **Hard write-gate (plugin hook)** — current OpenClaw plugins can *veto* tool
+  calls: `before_tool_call` may return `{ block, blockReason }` or pause for
+  human approval. The [OpenClaw README](../integrations/openclaw/README.md#hard-gating-memory-writes-with-a-plugin-hook)
+  carries a minimal gate snippet (written against the mid-2026 hooks docs —
+  verify against your installed version): ungrounded memory writes are blocked
+  *before* they land, absent-but-topic-present pauses for the human.
 
 ### Anything else
 
@@ -134,9 +161,13 @@ claiming *"rate limit is 1000 req/s"* (the spec says 100).
 
 ## Honest limits
 
-- **Asymmetric.** Grounding hardens `supported`/`contradicted` (there's a passage to
-  check) but **cannot** harden `absent`. Fail-safe: auto-pass only `supported` +
-  grounded; route the rest to a human or to quarantined memory.
+- **Asymmetric.** Grounding hardens `supported`/`contradicted` (there's a passage
+  to check); `absent` has no passage, so it gets the mechanical **recall probe**
+  instead — corroborated absences carry a near-zero overlap number, suspicious
+  ones (topic present, verdict absent) escalate. Corroboration is still not
+  proof: a claim can be absent in substance while sharing vocabulary, and vice
+  versa. Fail-safe stays: auto-pass only `supported` + grounded; route the rest
+  to a human or to quarantined memory.
 - **Conformance, not omniscience.** It enforces agreement with *the canon you
   pinned*, not universal truth. A wrong — or hostile — canon → confident wrong
   grounding (the model is *instructed to obey* the document, so a malicious
@@ -177,3 +208,11 @@ claiming *"rate limit is 1000 req/s"* (the spec says 100).
 - Drift & memory poisoning: [Governing Evolving Memory / SSGM (arXiv 2603.11768)](https://arxiv.org/html/2603.11768)
   · [MemoryGraft (arXiv 2512.16962)](https://arxiv.org/html/2512.16962v1)
   · [Agent Drift (arXiv 2601.04170)](https://arxiv.org/pdf/2601.04170)
+- The threat, formalized: [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/)
+  (ASI06 "Memory & Context Poisoning", Dec 2025) ·
+  [OWASP Agent Memory Guard](https://owasp.org/www-project-agent-memory-guard/)
+  (the detector-based reference — screens artifacts, does not verify facts;
+  complementary to this gate) ·
+  [MINJA: query-only memory injection (arXiv 2503.03704)](https://arxiv.org/abs/2503.03704)
+- Abstention is the hard verdict (why F17's probe is mechanical, not model-side):
+  [AbstentionBench (arXiv 2506.09038)](https://arxiv.org/abs/2506.09038)
