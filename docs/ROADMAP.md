@@ -81,12 +81,12 @@ security, so read them before touching `api/`:
    across I/O.
 6. **API changes are additive.** Add response fields; don't change or remove
    existing ones (n8n workflows, the MCP client, and LlamaCag UI all parse them).
+   A DB column change needs a migration note (see F5).
 7. **The four cache-persistence guards stay in every llama command block**
    (`--swa-full`, `--no-mmproj`, `--cache-ram 0`, `--ctx-checkpoints 0`) and
    llama-server builds stay >= 2026-04-24 — restore correctness on
    sliding-window models depends on them (F16 has the evidence).
-   A DB column change needs a migration note (see F5).
-7. **Model defaults live in three places that must agree**: `.env.example`, the
+8. **Model defaults live in three places that must agree**: `.env.example`, the
    `${VAR:-default}` fallbacks in all `docker-compose*.yml`, and
    `api/app/config.py`.
 

@@ -510,7 +510,7 @@ the same primitive this stack packages.
 
 ## Use it from Claude Code (MCP)
 
-The `mcp/` package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
+The [`mcp/`](mcp/README.md) package (`cag-mcp`) exposes the stack to any [MCP](https://modelcontextprotocol.io)
 client — Claude Code, Claude Desktop, or any 2026 agent — as a local
 document-memory tool. Instead of pasting a dense spec into the agent's context on
 every task and paying to re-read it each turn, the agent calls the `ask_document`
@@ -668,19 +668,20 @@ above a *typed* verifier — a claim in, a machine-readable verdict out:
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{
-        "question": "Verify strictly against the document: \"The peak current limit is 12 A\". Give your verdict and the exact supporting or contradicting passage.",
+        "question": "Verify strictly against the document: \"The peak current limit is 12 A\". Give your verdict, the exact supporting or contradicting passage, and in conditions any scope the document places on the claim (empty if unconditional).",
         "temperature": 0,
         "json_schema": {
           "type": "object",
           "properties": {
-            "claim":   { "type": "string" },
-            "verdict": { "enum": ["supported", "absent", "contradicted"] },
-            "quote":   { "type": "string" }
+            "claim":      { "type": "string" },
+            "verdict":    { "enum": ["supported", "absent", "contradicted"] },
+            "quote":      { "type": "string" },
+            "conditions": { "type": "string" }
           },
-          "required": ["claim", "verdict", "quote"]
+          "required": ["claim", "verdict", "quote", "conditions"]
         }
       }'
-# → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\"}", …}
+# → {"answer": "{\"claim\":\"The peak current limit is 12 A\",\"verdict\":\"supported\",\"quote\":\"…peak at 12 A for 10 s\",\"conditions\":\"peak rating applies to bursts of at most 10 s\"}", …}
 ```
 
 ### Preparing documents (PDFs, scans, tables)
@@ -738,7 +739,7 @@ then `python llamacag.py stop && python llamacag.py start`:
 |-------|---------|----------|---------------------|-------|
 | `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* | 262k | 6.5 GB | 16 GB RAM | Google's official QAT build — Q4 with near-full quality, Apache 2.0 |
 | `google/gemma-4-E4B-it-qat-q4_0-gguf` | 128k+ | ~3 GB | 8 GB RAM | Edge-class Gemma 4, lightest sensible option |
-| `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | 256k+ | ~5.5 GB | 16 GB RAM | Strongest small dense alternative |
+| `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | 262k | ~5.5 GB | 16 GB RAM | Strongest small alternative — hybrid Gated-DeltaNet + full attention |
 | `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | 256k | ~15 GB | 32 GB RAM | MoE: 26B-class answers at ~4B-active speed — best quality-per-second on big-RAM CPU boxes |
 | `ggml-org/GLM-4.7-Flash-GGUF:Q4_K` | 202k | ~27 GB | 64 GB RAM | Workstation class |
 

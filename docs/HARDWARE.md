@@ -167,9 +167,10 @@ LLAMA_CACHE_TYPE_KV=q8_0
 The shipped profile. Enough for a genuinely useful single-document assistant and
 a couple of hot slots if you keep the context moderate.
 
-- **Model:** `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* (≈6.5 GB, 256k
-  advertised, ungated Apache-2.0 QAT). Strong dense alternative:
-  `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` (≈5.5 GB, 262k native).
+- **Model:** `google/gemma-4-12B-it-qat-q4_0-gguf` *(default)* (≈6.5 GB, 262k
+  advertised, ungated Apache-2.0 QAT). Strong alternative:
+  `unsloth/Qwen3.5-9B-GGUF:Q4_K_M` (≈5.5 GB, 262k native, hybrid
+  Gated-DeltaNet + full attention).
 - **`LLAMA_CTX_SIZE`:** `65536` (the default).
 - **`CAG_SLOTS`:** `1` (default), or `2` if you alternate between two documents —
   each slot then gets 32k.
@@ -177,7 +178,7 @@ a couple of hot slots if you keep the context moderate.
 - **Document capacity:** ~**1 document of ~64k tokens** hot, or ~**2 of ~31k**
   with `CAG_SLOTS=2`. KV @ `q8_0`, 64k ≈ **4 GB**.
 - **Long-context note:** 64k is a sensible ceiling to actually *trust* on the
-  12B/9B class; you can set it to the model's full 256k, but expect recall to
+  12B/9B class; you can set it to the model's full 262k, but expect recall to
   fade well before then (see the effective-context section).
 
 ```dotenv

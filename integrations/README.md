@@ -14,6 +14,7 @@ code.
 | [`hermes/`](hermes) | A [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: `cag_verify` / `cag_ask` / `cag_remember` tools + hooks — on current Hermes the `pre_tool_call` hook hard-blocks ungrounded direct memory writes; on older builds it degrades to a tripwire log (set `CAG_OVERRIDE_MEMORY=1` there for the hard gate). |
 | [`openclaw/`](openclaw) | A [OpenClaw](https://docs.openclaw.ai) `cag-verify` skill (`SKILL.md` + a self-contained checker) — the fact-check OpenClaw doesn't ship — plus a `before_tool_call` veto-hook recipe for hard-gating memory writes. |
 | [`tests/`](tests) | The fail-safe matrix + the before/after "compounding loop is broken" trace. |
+| [`../mcp/`](../mcp) | The zero-framework route: the **MCP server** (`cag-mcp`) exposes `verify` and `ask_document` as native agent tools for Claude Code / Claude Desktop — same oracle, no hooks needed ([docs](../mcp/README.md)). |
 
 ## Quick start
 
