@@ -1,5 +1,11 @@
 # Implementation Plan — oracle hardening + zero-install web UI
 
+> **Shipped — kept as the as-built record (July 2026).** Everything this plan
+> specifies (F1–F6, F9, F10) is on `main`; [ROADMAP](ROADMAP.md) is the single
+> source of truth for status. Plan-tense sentences and point-in-time counts
+> below (e.g. "five workflows exist today" — there are now seven) describe the
+> tree as it was when the plan was written, not the current one.
+
 This document is the **build-ready** consolidation of the roadmap's Ready features
 ([docs/ROADMAP.md](ROADMAP.md) F1–F6, F9, F10), deepened from medium specs into
 plans a multi-agent build can execute directly. It is written to be **human-reviewed

@@ -3,6 +3,16 @@
 **Status:** Adopted · **Last updated:** 2026-07-02
 **Supersedes:** v1 (March 2025, no PRD existed)
 
+> **Historical record.** This is the v2.0 PRD as adopted (July 2026) — the
+> rationale-of-record for the rebuild, kept as written. Two things have moved
+> on since: the project's *headline* pivoted from "chat with your documents"
+> to the **trust/verification layer** (`POST /verify`, calibration, the agent
+> grounding gate — see the [README](../README.md) and
+> [ROADMAP](ROADMAP.md) F1–F5, F11), and the shipped default context is now
+> **65536**, not the 32k mentioned in the risks table. Note also that feature
+> ids here are the PRD's own numbering, not ROADMAP's F-series (PRD F6 = cache
+> self-heal; ROADMAP F6 = the `prepare` CLI).
+
 ## 1. Problem
 
 Answering repeated questions about the same reference documents with a local LLM is

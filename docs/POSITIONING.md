@@ -2,6 +2,16 @@
 
 **Last updated:** 2026-07-02
 
+> **Historical record.** Written 2026-07-02, on the eve of the trust-layer
+> turn — kept as the launch-thinking record. §7's verdict ("no pivot of
+> substance is needed; the pivot is presentational") is the one call that
+> aged: days later the project *did* pivot in substance, leading with the
+> **verification/trust layer** — the grounding oracle, `POST /verify` with its
+> mechanical quote check, calibration, and the agent grounding gate
+> ([ROADMAP](ROADMAP.md) F1–F5, F11; `integrations/`). The post-mortem (§1),
+> landscape scan (§2), and launch checklist (§6) remain accurate and useful;
+> for the current story, read the [README](../README.md).
+
 ## 1. The traction post-mortem (honest version)
 
 The original (March 2025) got ~zero traction for five compounding reasons, none

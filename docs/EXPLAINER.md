@@ -31,6 +31,29 @@ for huge archives — but the clerk never sees the whole book at once, and does
 the skimming again on every single question. Our reader saw everything, and
 only ever does the reading once.
 
+## It doesn't just answer — it checks
+
+There's a second thing the reader does, and it has become the heart of this
+project: **checking claims, with receipts.**
+
+Hand the system a sentence — from a colleague's draft, from another AI, from
+your own notes — and ask: *is this actually what the document says?* The
+reader gives one of three verdicts: **supported** (here's the exact passage),
+**contradicted** (here's the passage that says otherwise), or **absent** (the
+document doesn't say). Then comes the part no AI opinion can fake: the system
+takes the quoted passage and **mechanically checks that those words really are
+in the book** — a plain text search, like Ctrl+F. An AI that invents a
+convincing-sounding quote is caught by string matching, not by another AI's
+say-so.
+
+Why does that matter? Because the ones asking are increasingly not people.
+Chatbots and autonomous agents are eager to please and occasionally state
+things that aren't so — and worse, they *remember* their own mistakes and
+build on them. Put this system between an agent and anything that matters —
+as a **gate** — and its claims get checked against your one trusted document
+before anyone, or anything, acts on them. The eager intern's work gets
+reviewed against the binder by a colleague who actually read the whole thing.
+
 ## Who lives on your computer
 
 When you start the system, five characters wake up. Four live inside Docker
@@ -86,6 +109,11 @@ memory is loaded (from disk if needed — a second or two, no re-reading) → th
 Reader answers using the *entire* document → you get the answer plus a little
 receipt showing it only had to process your question, not the book.
 
+**When you ask it to check a claim:** same path as a question, but the answer
+comes back as a verdict — supported, contradicted, or absent — plus the exact
+passage it rests on, and the system double-checks with a plain text search (no
+AI involved) that the passage really exists in the document.
+
 ## Is this for me?
 
 <p align="center">
@@ -95,7 +123,10 @@ receipt showing it only had to process your question, not the book.
 **Yes, if:** you have a handful of dense documents — a product manual, a
 contract, a rulebook, a thesis — and you (or a chatbot, or an automation, or a
 coding assistant) will ask them many questions over time, and you'd like that
-to be private, free per-question, and running on hardware you own.
+to be private, free per-question, and running on hardware you own. Also yes if
+you use *other* AI tools and want their claims checked against a document you
+trust before you act on them — that's the gate, and it's the job this system
+has turned out to be best at.
 
 **No, if:** you have thousands of documents (get a "filing clerk" tool — that's
 what they're great at), or documents too big to fit the Reader's attention span
