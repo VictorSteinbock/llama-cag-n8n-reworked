@@ -67,6 +67,10 @@ onward, honestly. New to all this? Start with the
 [plain-words explainer](docs/EXPLAINER.md) or the
 [setup guide](docs/SETUP.md).
 
+Prefer to see it as deployments? **[docs/USE-CASES.md](docs/USE-CASES.md)** is
+the five-page tour — one real-world use case per page, each slide carrying the
+mechanics that hold it up *and* its honest limit.
+
 ## Where this shines
 
 The mechanism is generic, but it pays off hardest in a specific shape of
@@ -89,7 +93,9 @@ metered: every fresh session, every post-compaction re-read, pays for the full
 spec again. Point the agent at the local `ask_document` MCP tool instead and
 only questions (~tens of tokens) and answers cross the boundary. The spec stays
 pinned in a local KV cache — never occupying the agent's context, never
-expiring, never billed, never leaving your machine.
+expiring, never billed, never leaving your machine. Your workstation's spare
+RAM is the asset here: it holds the spec warm so the metered context window
+never has to carry it.
 
 **The team reference desk.** Contracts, runbooks, compliance manuals, an SOP
 binder — documents a team asks the same questions against for weeks, and that
@@ -976,7 +982,7 @@ Honest answer: **almost none, and no code changes for new models.**
 │   └── tests/              #   tool tests over a MockTransport fake of cag-api
 ├── integrations/           # grounding gate for agent loops: cag_gate core + Hermes plugin + OpenClaw skill
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
-├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
+├── docs/                   # PRD + ARCHITECTURE (design), guides, use-case deck, SVG visuals
 ├── n8n/workflows/          # 7 importable workflows: ingestion, query, maintenance, sweep, verify, calibrate, answer-gate
 ├── docker-compose.yml      # llama-server + cag-api + n8n + postgres
 ├── docker-compose.gpu.yml  # NVIDIA (CUDA) override

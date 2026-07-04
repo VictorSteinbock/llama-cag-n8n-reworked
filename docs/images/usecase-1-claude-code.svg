@@ -1,0 +1,97 @@
+<svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="u1Amber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="u1Cyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0F172A"/>
+  <ellipse cx="290" cy="300" rx="300" ry="170" fill="url(#u1Amber)"/>
+  <ellipse cx="910" cy="300" rx="300" ry="170" fill="url(#u1Cyan)"/>
+
+  <!-- header -->
+  <text x="60" y="52" font-size="13" font-weight="700" fill="#F59E0B" letter-spacing="3">USE CASE 1 OF 5 &#183; CODING AGENTS</text>
+  <text x="60" y="90" font-size="30" font-weight="700" fill="#E2E8F0">Your spare RAM becomes your coding agent's reference brain</text>
+  <text x="61" y="117" font-size="15" fill="#94A3B8">Pin the dense spec on the machine you already own; the metered agent looks things up instead of carrying it.</text>
+
+  <!-- left panel: the warm pool -->
+  <rect x="60" y="150" width="460" height="292" rx="16" fill="#1E293B" stroke="#F59E0B" stroke-width="1.75"/>
+  <text x="84" y="182" font-size="16" font-weight="700" fill="#E2E8F0">Your workstation</text>
+  <text x="496" y="182" font-size="11.5" fill="#F59E0B" text-anchor="end">the warm pool &#183; local &#183; unmetered</text>
+
+  <!-- canon cylinder -->
+  <path d="M100 230 v84 a92 14 0 0 0 184 0 v-84" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+  <ellipse cx="192" cy="230" rx="92" ry="14" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+  <text x="192" y="266" font-size="14" font-weight="700" fill="#F59E0B" text-anchor="middle">vendor-spec.pdf</text>
+  <text x="192" y="285" font-size="11.5" fill="#D9A441" text-anchor="middle">41,772 tokens &#183; read once</text>
+  <text x="192" y="303" font-size="11" fill="#94A3B8" text-anchor="middle">KV state pinned in RAM</text>
+
+  <!-- llama-server chip -->
+  <rect x="322" y="235" width="172" height="58" rx="10" fill="#14202E" stroke="#64748B" stroke-width="1.5"/>
+  <text x="408" y="259" font-size="13" font-weight="700" fill="#E2E8F0" text-anchor="middle">llama-server</text>
+  <text x="408" y="278" font-size="11" fill="#94A3B8" text-anchor="middle">slot 0 &#183; holds it warm</text>
+
+  <!-- receipt strip -->
+  <rect x="84" y="352" width="412" height="44" rx="8" fill="#0E1626" stroke="#334155" stroke-width="1.25"/>
+  <text x="98" y="369" font-size="10.5" fill="#64748B">the receipt on every answer:</text>
+  <text x="98" y="387" font-size="12" font-family="ui-monospace, Consolas, monospace" fill="#34D399">evaluated 38 of 41,772 tokens &#183; 590 ms &#183; memory</text>
+
+  <text x="290" y="424" font-size="11.5" fill="#94A3B8" text-anchor="middle">a fixed RAM block, allocated once &#8212; more documents cost disk, not RAM</text>
+
+  <!-- right panel: Claude Code session -->
+  <rect x="680" y="150" width="460" height="292" rx="16" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="704" y="182" font-size="16" font-weight="700" fill="#E2E8F0">Claude Code session</text>
+  <text x="1116" y="182" font-size="11.5" fill="#22D3EE" text-anchor="end">cloud &#183; metered &#183; finite window</text>
+
+  <rect x="716" y="212" width="388" height="88" rx="10" fill="#12261E" stroke="#34D399" stroke-width="1.5"/>
+  <text x="910" y="248" font-size="14" font-weight="700" fill="#34D399" text-anchor="middle">your code + the task at hand</text>
+  <text x="910" y="270" font-size="11.5" fill="#A9D9C6" text-anchor="middle">the context window stays on the work</text>
+
+  <rect x="716" y="322" width="388" height="66" rx="10" fill="#1B1416" stroke="#F87171" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="910" y="350" font-size="13" fill="#F87171" text-anchor="middle" text-decoration="line-through">the 28k-token spec, pasted in again</text>
+  <text x="910" y="371" font-size="11" fill="#CBB6B7" text-anchor="middle">not here &#8212; it never enters the metered window</text>
+
+  <text x="910" y="424" font-size="11.5" fill="#94A3B8" text-anchor="middle">no re-send at session start &#183; no re-read after compaction</text>
+
+  <!-- arrows between panels -->
+  <line x1="676" y1="252" x2="528" y2="252" stroke="#22D3EE" stroke-width="2"/>
+  <path d="M526 252 L535 248 L535 256 Z" fill="#22D3EE"/>
+  <text x="600" y="238" font-size="12.5" font-weight="700" fill="#22D3EE" text-anchor="middle">ask_document</text>
+  <text x="600" y="270" font-size="10.5" fill="#94A3B8" text-anchor="middle">a question &#8212; tens of tokens</text>
+
+  <line x1="524" y1="340" x2="672" y2="340" stroke="#34D399" stroke-width="2"/>
+  <path d="M674 340 L665 336 L665 344 Z" fill="#34D399"/>
+  <text x="600" y="326" font-size="12.5" font-weight="700" fill="#34D399" text-anchor="middle">answer + quote</text>
+  <text x="600" y="358" font-size="10.5" fill="#94A3B8" text-anchor="middle">cited from the source</text>
+
+  <!-- bottom band -->
+  <rect x="60" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="82" y="506" font-size="12" font-weight="700" fill="#34D399" letter-spacing="2">WHY IT HOLDS</text>
+  <text x="82" y="530" font-size="12.5" fill="#94A3B8">&#183; the spec never occupies the paid window</text>
+  <text x="82" y="549" font-size="12.5" fill="#94A3B8">&#183; pinned KV survives reboots &#8212; no cache</text>
+  <text x="82" y="567" font-size="12.5" fill="#94A3B8">&#160;&#160;TTL, no re-read fees, no expiry</text>
+  <text x="82" y="586" font-size="12.5" fill="#94A3B8">&#183; answers cite the passage; /verify checks it</text>
+
+  <rect x="424" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="446" y="506" font-size="12" font-weight="700" fill="#F87171" letter-spacing="2">THE HONEST LIMIT</text>
+  <text x="446" y="530" font-size="12.5" fill="#94A3B8">&#183; a reference oracle, not a refactoring</text>
+  <text x="446" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;surface &#8212; the agent still edits your files</text>
+  <text x="446" y="568" font-size="12.5" fill="#94A3B8">&#183; each new document costs one slow read,</text>
+  <text x="446" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;at drop time &#8212; then fast forever</text>
+
+  <rect x="788" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="810" y="506" font-size="12" font-weight="700" fill="#22D3EE" letter-spacing="2">WHAT YOU NEED</text>
+  <text x="810" y="530" font-size="12.5" fill="#94A3B8">&#183; spare RAM &#8212; 16 GB fits the default model</text>
+  <text x="810" y="549" font-size="12.5" fill="#94A3B8">&#183; one MCP entry in Claude Code</text>
+  <text x="810" y="568" font-size="12.5" fill="#94A3B8">&#183; documents up to ~64k tokens each on</text>
+  <text x="810" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;default settings (raise ctx for more)</text>
+
+  <!-- footer -->
+  <text x="60" y="662" font-size="11.5" fill="#475569">docs/USE-CASES.md &#8212; the five-page tour</text>
+  <text x="1140" y="662" font-size="12" fill="#64748B" text-anchor="end">llama-cag &#183; read once, ask forever &#183; 1 / 5</text>
+</svg>

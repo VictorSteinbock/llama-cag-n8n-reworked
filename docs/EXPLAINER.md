@@ -106,5 +106,7 @@ what they're great at), or documents too big to fit the Reader's attention span
 A computer with Docker installed and ~10 GB of memory to spare, one `python
 llamacag.py setup`, one `python llamacag.py start`, and patience for a one-time
 model download. For a calm, click-by-click walkthrough — including a
-*"let Claude Code do it"* option — see the **[setup guide](SETUP.md)**;
-everything else is in the [README](../README.md).
+*"let Claude Code do it"* option — see the **[setup guide](SETUP.md)**. Curious
+what people actually run on this? The **[use-case tour](USE-CASES.md)** shows
+five real setups, one picture each; everything else is in the
+[README](../README.md).

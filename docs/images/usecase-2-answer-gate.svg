@@ -1,0 +1,96 @@
+<svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="u2Amber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0F172A"/>
+  <ellipse cx="640" cy="290" rx="420" ry="180" fill="url(#u2Amber)"/>
+
+  <!-- header -->
+  <text x="60" y="52" font-size="13" font-weight="700" fill="#F59E0B" letter-spacing="3">USE CASE 2 OF 5 &#183; SUPPORT &amp; OPS AUTOMATION</text>
+  <text x="60" y="90" font-size="30" font-weight="700" fill="#E2E8F0">A support bot that can't ship policy it invented</text>
+  <text x="61" y="117" font-size="15" fill="#94A3B8">Every outgoing answer is regenerated from the manual and checked against it &#8212; before anyone sees it.</text>
+
+  <!-- flow: incoming -> webhook -> regen -> verify -->
+  <rect x="60" y="240" width="190" height="88" rx="12" fill="#1E293B" stroke="#64748B" stroke-width="1.5"/>
+  <text x="155" y="268" font-size="11" fill="#64748B" text-anchor="middle">INCOMING</text>
+  <text x="155" y="290" font-size="13.5" font-weight="700" fill="#E2E8F0" text-anchor="middle">question + draft</text>
+  <text x="155" y="310" font-size="11" fill="#94A3B8" text-anchor="middle">from any bot or agent</text>
+
+  <line x1="250" y1="284" x2="296" y2="284" stroke="#475569" stroke-width="2"/>
+  <path d="M298 284 L289 280 L289 288 Z" fill="#475569"/>
+
+  <rect x="300" y="240" width="190" height="88" rx="12" fill="#1E293B" stroke="#E2E8F0" stroke-width="1.75"/>
+  <text x="395" y="268" font-size="11" fill="#64748B" text-anchor="middle">ONE WEBHOOK</text>
+  <text x="395" y="290" font-size="13.5" font-weight="700" fill="#E2E8F0" text-anchor="middle">n8n answer-gate</text>
+  <text x="395" y="310" font-size="11" fill="#94A3B8" text-anchor="middle">bundled &#183; no credentials</text>
+
+  <line x1="490" y1="284" x2="536" y2="284" stroke="#475569" stroke-width="2"/>
+  <path d="M538 284 L529 280 L529 288 Z" fill="#475569"/>
+
+  <rect x="540" y="240" width="212" height="88" rx="12" fill="#1E293B" stroke="#F59E0B" stroke-width="1.75"/>
+  <text x="646" y="268" font-size="11" fill="#D9A441" text-anchor="middle">GROUNDED REGEN</text>
+  <text x="646" y="290" font-size="13.5" font-weight="700" fill="#F59E0B" text-anchor="middle">answer at temp 0</text>
+  <text x="646" y="310" font-size="11" fill="#94A3B8" text-anchor="middle">the whole manual in context</text>
+
+  <line x1="752" y1="284" x2="798" y2="284" stroke="#475569" stroke-width="2"/>
+  <path d="M800 284 L791 280 L791 288 Z" fill="#475569"/>
+
+  <rect x="802" y="240" width="196" height="88" rx="12" fill="#14202E" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="900" y="268" font-size="11" fill="#22D3EE" text-anchor="middle">THE ORACLE</text>
+  <text x="900" y="290" font-size="13.5" font-weight="700" fill="#E2E8F0" text-anchor="middle">POST /verify</text>
+  <text x="900" y="310" font-size="11" fill="#94A3B8" text-anchor="middle">draft vs the source bytes</text>
+
+  <!-- branch: pass (up) -->
+  <path d="M998 262 C 1030 250, 1048 232, 1060 214" fill="none" stroke="#34D399" stroke-width="2.25"/>
+  <path d="M1061 211 L1052 214 L1058 221 Z" fill="#34D399"/>
+  <rect x="960" y="140" width="180" height="62" rx="10" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+  <text x="1050" y="166" font-size="13.5" font-weight="700" fill="#34D399" text-anchor="middle">send &#8212; cited</text>
+  <text x="1050" y="186" font-size="10.5" fill="#A9D9C6" text-anchor="middle">supported + quote in source</text>
+
+  <!-- branch: escalate (down) -->
+  <path d="M998 306 C 1030 318, 1048 336, 1060 354" fill="none" stroke="#F87171" stroke-width="2.25"/>
+  <path d="M1061 357 L1058 347 L1052 354 Z" fill="#F87171"/>
+  <rect x="960" y="366" width="180" height="62" rx="10" fill="#1B1416" stroke="#F87171" stroke-width="1.75"/>
+  <text x="1050" y="392" font-size="13.5" font-weight="700" fill="#F87171" text-anchor="middle">human review</text>
+  <text x="1050" y="412" font-size="10.5" fill="#CBB6B7" text-anchor="middle">anything else &#183; fail-closed</text>
+
+  <!-- what escalates, spelled out -->
+  <text x="600" y="380" font-size="12" fill="#F87171" text-anchor="middle">escalates: contradicted &#183; absent &#183; fabricated quote &#183; any API error</text>
+  <text x="600" y="404" font-size="12" fill="#94A3B8" text-anchor="middle">the draft is checked as a whole &#8212; answer-compare, not fact-fragments &#8212; so a wrong</text>
+  <text x="600" y="422" font-size="12" fill="#94A3B8" text-anchor="middle">conclusion built from true sentences still fails the gate</text>
+
+  <!-- worked example strip -->
+  <rect x="60" y="150" width="560" height="56" rx="10" fill="#0E1626" stroke="#334155" stroke-width="1.25"/>
+  <text x="80" y="172" font-size="10.5" fill="#64748B">EXAMPLE &#8212; draft: &#171;Yes &#8212; the warranty fully covers water damage.&#187;</text>
+  <text x="80" y="192" font-size="12" font-family="ui-monospace, Consolas, monospace" fill="#F87171">{"pass": false, "verdict": "contradicted", ...}</text>
+
+  <!-- bottom band -->
+  <rect x="60" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="82" y="506" font-size="12" font-weight="700" fill="#34D399" letter-spacing="2">WHY IT HOLDS</text>
+  <text x="82" y="530" font-size="12.5" fill="#94A3B8">&#183; checks the thing that ships, not fragments</text>
+  <text x="82" y="549" font-size="12.5" fill="#94A3B8">&#183; temp 0: same question &#8594; same answer</text>
+  <text x="82" y="568" font-size="12.5" fill="#94A3B8">&#183; the quote is byte-checked against the</text>
+  <text x="82" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;source &#8212; zero extra model calls</text>
+
+  <rect x="424" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="446" y="506" font-size="12" font-weight="700" fill="#F87171" letter-spacing="2">THE HONEST LIMIT</text>
+  <text x="446" y="530" font-size="12.5" fill="#94A3B8">&#183; generation is serialized &#8212; a queue</text>
+  <text x="446" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;worker, not a public live chat for a crowd</text>
+  <text x="446" y="568" font-size="12.5" fill="#94A3B8">&#183; absent is never auto-passed &#8212; a person</text>
+  <text x="446" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;sees every uncertain answer</text>
+
+  <rect x="788" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="810" y="506" font-size="12" font-weight="700" fill="#22D3EE" letter-spacing="2">WHAT YOU NEED</text>
+  <text x="810" y="530" font-size="12.5" fill="#94A3B8">&#183; the manual ingested once (drop a file)</text>
+  <text x="810" y="549" font-size="12.5" fill="#94A3B8">&#183; the bundled answer-gate workflow</text>
+  <text x="810" y="568" font-size="12.5" fill="#94A3B8">&#183; one POST per answer &#8212; from n8n, code,</text>
+  <text x="810" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;or any ticket system that can call HTTP</text>
+
+  <!-- footer -->
+  <text x="60" y="662" font-size="11.5" fill="#475569">docs/USE-CASES.md &#8212; the five-page tour</text>
+  <text x="1140" y="662" font-size="12" fill="#64748B" text-anchor="end">llama-cag &#183; read once, ask forever &#183; 2 / 5</text>
+</svg>

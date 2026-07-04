@@ -1,0 +1,91 @@
+<svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="u5Amber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0F172A"/>
+  <ellipse cx="950" cy="290" rx="300" ry="180" fill="url(#u5Amber)"/>
+
+  <!-- header -->
+  <text x="60" y="52" font-size="13" font-weight="700" fill="#F59E0B" letter-spacing="3">USE CASE 5 OF 5 &#183; THE PERSONAL DESK</text>
+  <text x="60" y="90" font-size="30" font-weight="700" fill="#E2E8F0">One person, one dense manual, instant grounded answers</text>
+  <text x="61" y="117" font-size="15" fill="#94A3B8">The 200-page binder becomes something you ask &#8212; on the machine you already own, with the line it came from.</text>
+
+  <!-- person -->
+  <circle cx="120" cy="240" r="22" fill="none" stroke="#94A3B8" stroke-width="2"/>
+  <path d="M84 320 a36 36 0 0 1 72 0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+  <text x="120" y="352" font-size="11" fill="#64748B" text-anchor="middle">IT admin &#183; lawyer &#183;</text>
+  <text x="120" y="368" font-size="11" fill="#64748B" text-anchor="middle">ops &#183; researcher</text>
+
+  <!-- browser window -->
+  <rect x="200" y="160" width="400" height="248" rx="12" fill="#1E293B" stroke="#334155" stroke-width="1.5"/>
+  <circle cx="222" cy="182" r="5" fill="#F87171"/>
+  <circle cx="240" cy="182" r="5" fill="#F59E0B"/>
+  <circle cx="258" cy="182" r="5" fill="#34D399"/>
+  <rect x="276" y="172" width="308" height="20" rx="6" fill="#0E1626"/>
+  <text x="430" y="186" font-size="11" fill="#64748B" text-anchor="middle">localhost:8000/ui &#8212; optional window</text>
+
+  <!-- chat bubbles -->
+  <rect x="256" y="212" width="328" height="42" rx="10" fill="#14202E" stroke="#22D3EE" stroke-width="1.25"/>
+  <text x="272" y="238" font-size="12.5" fill="#E2E8F0">Does the warranty cover water damage?</text>
+
+  <rect x="216" y="268" width="344" height="66" rx="10" fill="#12261E" stroke="#34D399" stroke-width="1.25"/>
+  <text x="232" y="292" font-size="12.5" font-weight="700" fill="#34D399">The grounded answer &#8212;</text>
+  <text x="232" y="312" font-size="11.5" fill="#A9D9C6">with the exact line it came from, quoted</text>
+
+  <rect x="216" y="348" width="200" height="26" rx="13" fill="#0E1626" stroke="#334155" stroke-width="1"/>
+  <text x="316" y="365" font-size="10.5" fill="#34D399" text-anchor="middle">cache: memory &#183; answered in seconds</text>
+
+  <text x="400" y="394" font-size="10.5" fill="#64748B" text-anchor="middle">only your question is ever computed &#8212; the manual was read once</text>
+
+  <!-- arrow to engine -->
+  <line x1="600" y1="284" x2="676" y2="284" stroke="#475569" stroke-width="2"/>
+  <path d="M678 284 L669 280 L669 288 Z" fill="#475569"/>
+
+  <!-- engine -->
+  <rect x="680" y="240" width="170" height="88" rx="12" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="765" y="276" font-size="14" font-weight="700" fill="#E2E8F0" text-anchor="middle">cag-api</text>
+  <text x="765" y="298" font-size="11" fill="#94A3B8" text-anchor="middle">+ llama-server</text>
+
+  <line x1="850" y1="284" x2="912" y2="284" stroke="#F59E0B" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M914 284 L905 280 L905 288 Z" fill="#F59E0B"/>
+
+  <!-- canon cylinder -->
+  <path d="M916 240 v76 a80 14 0 0 0 160 0 v-76" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+  <ellipse cx="996" cy="240" rx="80" ry="14" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+  <text x="996" y="276" font-size="13.5" font-weight="700" fill="#F59E0B" text-anchor="middle">the binder</text>
+  <text x="996" y="295" font-size="11" fill="#D9A441" text-anchor="middle">manual &#183; contract &#183; SOP</text>
+  <text x="996" y="313" font-size="10.5" fill="#94A3B8" text-anchor="middle">read once &#183; survives reboots</text>
+
+  <!-- no-screens alternative -->
+  <text x="600" y="446" font-size="12" fill="#64748B" text-anchor="middle">or skip the screens entirely: drop the file in ./documents &#8594; ask the webhook &#8212; the windows are optional views, never required</text>
+
+  <!-- bottom band -->
+  <rect x="60" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="82" y="506" font-size="12" font-weight="700" fill="#34D399" letter-spacing="2">WHY IT HOLDS</text>
+  <text x="82" y="530" font-size="12.5" fill="#94A3B8">&#183; the whole manual is in context on every</text>
+  <text x="82" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;answer &#8212; no retrieval misses, ever</text>
+  <text x="82" y="568" font-size="12.5" fill="#94A3B8">&#183; switch models safely: stale caches are</text>
+  <text x="82" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;fingerprinted and auto-invalidated</text>
+
+  <rect x="424" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="446" y="506" font-size="12" font-weight="700" fill="#F87171" letter-spacing="2">THE HONEST LIMIT</text>
+  <text x="446" y="530" font-size="12.5" fill="#94A3B8">&#183; one machine, one generation at a time &#8212;</text>
+  <text x="446" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;a personal desk, not a crowd service</text>
+  <text x="446" y="568" font-size="12.5" fill="#94A3B8">&#183; a document must fit: ~64k tokens &#8776; a</text>
+  <text x="446" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;200-page manual on default settings</text>
+
+  <rect x="788" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="810" y="506" font-size="12" font-weight="700" fill="#22D3EE" letter-spacing="2">WHAT YOU NEED</text>
+  <text x="810" y="530" font-size="12.5" fill="#94A3B8">&#183; Docker + 16 GB RAM for the default model</text>
+  <text x="810" y="549" font-size="12.5" fill="#94A3B8">&#183; scanned / visual PDFs go through the</text>
+  <text x="810" y="568" font-size="12.5" fill="#94A3B8">&#160;&#160;prepare pass first (text is the input)</text>
+  <text x="810" y="587" font-size="12.5" fill="#94A3B8">&#183; drop the file, wait the one warm, ask</text>
+
+  <!-- footer -->
+  <text x="60" y="662" font-size="11.5" fill="#475569">docs/USE-CASES.md &#8212; the five-page tour</text>
+  <text x="1140" y="662" font-size="12" fill="#64748B" text-anchor="end">llama-cag &#183; read once, ask forever &#183; 5 / 5</text>
+</svg>
