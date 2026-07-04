@@ -17,6 +17,34 @@ re-reading the document every time.**
 > walks it in plain words — or, if you use Claude Code,
 > **[let it set everything up for you](docs/SETUP.md#let-claude-code-do-it)**.
 
+<p align="center">
+  <a href="#see-it-in-60-seconds"><img src="docs/images/nav-demo.svg" alt="60-second demo" height="46"></a>
+  <a href="#quick-start"><img src="docs/images/nav-quick-start.svg" alt="Quick start" height="46"></a>
+  <a href="docs/USE-CASES.md"><img src="docs/images/nav-use-cases.svg" alt="Use-case deck" height="46"></a>
+  <a href="#use-it-from-claude-code-mcp"><img src="docs/images/nav-claude-code.svg" alt="Claude Code (MCP)" height="46"></a>
+  <br>
+  <a href="#the-grounding-oracle--check-any-ai-against-your-rulebook"><img src="docs/images/nav-oracle.svg" alt="The grounding oracle" height="46"></a>
+  <a href="docs/AGENTS.md"><img src="docs/images/nav-agent-gates.svg" alt="Agent gates" height="46"></a>
+  <a href="docs/SETUP.md"><img src="docs/images/nav-setup.svg" alt="Setup guide" height="46"></a>
+  <a href="docs/EXPLAINER.md"><img src="docs/images/nav-explainer.svg" alt="Plain-words explainer" height="46"></a>
+</p>
+
+## See it in 60 seconds
+
+The most popular setup first — your coding agent, plus one dense spec it no
+longer has to carry around:
+
+<p align="center">
+  <img src="docs/images/demo-60s.svg" alt="Three steps: 1. Pin the 200-page spec once — read on your machine, remembered even after a reboot. 2. Your agent asks: Claude Code calls ask_document with a tens-of-tokens question; the spec is not pasted into the chat. 3. Grounded answer in seconds with the exact line of the spec it came from, quoted. The receipt on every answer: evaluated 38 of 41,772 tokens, 590 ms, from memory." width="100%">
+</p>
+
+Three things just happened: the paid context window stayed on your code (the
+spec lives on your machine), the answer was free and arrived with **the exact
+line it came from**, and the spec never needs reading again — not tomorrow, not
+after a reboot. That's the product. Four more one-page setups like this — the
+support gate, the agent memory guard, the claim audit, the private reference
+desk — are in **[the use-case deck](docs/USE-CASES.md)**.
+
 You have a document you need to **ask questions of** — a product manual, a
 contract, a compliance binder, a vendor spec — and you'll ask it not once but
 dozens of times over the coming weeks. Every way of doing that today makes you

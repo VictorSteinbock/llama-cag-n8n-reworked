@@ -11,7 +11,7 @@ code.
 | Path | What it is |
 |---|---|
 | [`cag_gate/`](cag_gate) | The tested, framework-agnostic core: a `GroundingGate` that turns a `POST /verify` verdict into a fail-safe `Decision` (allow / quarantine / block / escalate). Stdlib only. |
-| [`hermes/`](hermes) | A [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: `cag_verify` / `cag_ask` / `cag_remember` tools + a reactive memory-quarantine hook. |
+| [`hermes/`](hermes) | A [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: `cag_verify` / `cag_ask` / `cag_remember` tools + a reactive memory-quarantine hook (a tripwire log by itself — set `CAG_OVERRIDE_MEMORY=1` for the hard gate). |
 | [`openclaw/`](openclaw) | A [OpenClaw](https://docs.openclaw.ai) `cag-verify` skill (`SKILL.md` + a self-contained checker) — the fact-check OpenClaw doesn't ship. |
 | [`tests/`](tests) | The fail-safe matrix + the before/after "compounding loop is broken" trace. |
 

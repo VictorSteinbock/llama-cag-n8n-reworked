@@ -1,0 +1,59 @@
+<svg viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="d60Amber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="400" fill="#0F172A"/>
+  <ellipse cx="600" cy="180" rx="480" ry="170" fill="url(#d60Amber)"/>
+
+  <!-- step 1: pin the document -->
+  <rect x="40" y="36" width="345" height="230" rx="16" fill="#1E293B" stroke="#F59E0B" stroke-width="1.75"/>
+  <text x="64" y="70" font-size="13" font-weight="700" fill="#F59E0B" letter-spacing="2">1 &#183; PIN IT &#8212; ONCE</text>
+  <path d="M120 116 v66 a70 12 0 0 0 140 0 v-66" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+  <ellipse cx="190" cy="116" rx="70" ry="12" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+  <text x="190" y="146" font-size="13" font-weight="700" fill="#F59E0B" text-anchor="middle">the 200-page spec</text>
+  <text x="190" y="165" font-size="11" fill="#D9A441" text-anchor="middle">read once, on your machine</text>
+  <text x="212" y="234" font-size="11.5" fill="#94A3B8" text-anchor="middle">drop the file &#8212; it's remembered</text>
+  <text x="212" y="252" font-size="11.5" fill="#94A3B8" text-anchor="middle">even after a reboot</text>
+
+  <!-- arrow 1 -->
+  <line x1="385" y1="150" x2="425" y2="150" stroke="#475569" stroke-width="2"/>
+  <path d="M427 150 L418 146 L418 154 Z" fill="#475569"/>
+
+  <!-- step 2: your agent asks -->
+  <rect x="430" y="36" width="345" height="230" rx="16" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="454" y="70" font-size="13" font-weight="700" fill="#22D3EE" letter-spacing="2">2 &#183; YOUR AGENT ASKS</text>
+  <rect x="454" y="92" width="297" height="58" rx="10" fill="#0E1626" stroke="#334155" stroke-width="1.25"/>
+  <text x="470" y="115" font-size="11" fill="#64748B">Claude Code &#8594; ask_document</text>
+  <text x="470" y="136" font-size="12.5" fill="#E2E8F0">&#171;What's the retry policy?&#187;</text>
+  <text x="602" y="180" font-size="12" fill="#22D3EE" text-anchor="middle">a question &#8212; tens of tokens</text>
+  <text x="602" y="234" font-size="11.5" fill="#94A3B8" text-anchor="middle">the spec is NOT pasted into the chat &#8212;</text>
+  <text x="602" y="252" font-size="11.5" fill="#94A3B8" text-anchor="middle">the paid context window stays on your code</text>
+
+  <!-- arrow 2 -->
+  <line x1="775" y1="150" x2="815" y2="150" stroke="#475569" stroke-width="2"/>
+  <path d="M817 150 L808 146 L808 154 Z" fill="#475569"/>
+
+  <!-- step 3: grounded answer -->
+  <rect x="820" y="36" width="345" height="230" rx="16" fill="#1E293B" stroke="#34D399" stroke-width="1.75"/>
+  <text x="844" y="70" font-size="13" font-weight="700" fill="#34D399" letter-spacing="2">3 &#183; GROUNDED ANSWER</text>
+  <rect x="844" y="92" width="297" height="76" rx="10" fill="#12261E" stroke="#34D399" stroke-width="1.25"/>
+  <text x="860" y="116" font-size="12.5" font-weight="700" fill="#34D399">The answer, in seconds &#8212;</text>
+  <text x="860" y="136" font-size="11.5" fill="#A9D9C6">with the exact line of the spec</text>
+  <text x="860" y="153" font-size="11.5" fill="#A9D9C6">it came from, quoted</text>
+  <text x="992" y="200" font-size="12" fill="#34D399" text-anchor="middle">can't invent a rule that isn't there</text>
+  <text x="992" y="234" font-size="11.5" fill="#94A3B8" text-anchor="middle">free per question &#183; nothing leaves</text>
+  <text x="992" y="252" font-size="11.5" fill="#94A3B8" text-anchor="middle">your machine</text>
+
+  <!-- the receipt bar -->
+  <rect x="40" y="290" width="1125" height="48" rx="10" fill="#0E1626" stroke="#334155" stroke-width="1.25"/>
+  <text x="64" y="310" font-size="10.5" fill="#64748B">THE RECEIPT ON EVERY ANSWER</text>
+  <text x="64" y="329" font-size="13" font-family="ui-monospace, Consolas, monospace" fill="#34D399">evaluated 38 of 41,772 tokens &#183; 590 ms &#183; from memory</text>
+  <text x="1141" y="322" font-size="11.5" fill="#94A3B8" text-anchor="end">the other 41,734 tokens? already read &#8212; never paid for again</text>
+
+  <!-- footer chips -->
+  <text x="600" y="374" font-size="12" fill="#64748B" text-anchor="middle">100% local &#183; free per question &#183; every answer cites its line &#183; read once, ask forever</text>
+</svg>
