@@ -7,39 +7,50 @@ on:
 
 jobs:
   api:
-    name: Lint + test cag-api
+    name: Lint + test cag-api (py ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Cover the declared support range: pyproject floors are 3.11
+        # (api, mcp) / 3.10 (integrations); local dev runs 3.13.
+        python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "${{ matrix.python }}"
           cache: pip
       - run: pip install -e "./api[dev]"
       - run: ruff check api
       - run: pytest api -q
 
   mcp:
-    name: Lint + test cag-mcp
+    name: Lint + test cag-mcp (py ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "${{ matrix.python }}"
           cache: pip
       - run: pip install -e "./mcp[dev]"
       - run: ruff check mcp
       - run: pytest mcp -q
 
   integrations:
-    name: Lint + test grounding gate
+    name: Lint + test grounding gate (py ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "${{ matrix.python }}"
           cache: pip
       - run: pip install -e "./integrations[dev]"
       - run: ruff check integrations
