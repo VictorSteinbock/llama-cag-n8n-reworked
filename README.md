@@ -944,14 +944,17 @@ option instead of a science project.
 ## Roadmap
 
 The upgrades that make the **grounding oracle** honest and trustworthy have
-**already shipped** on this branch: the mechanical quote-grounding check
+**already shipped**: the mechanical quote-grounding check
 ([`POST /verify`](#the-api)), per-canon reliability
 [calibration](#know-your-canons-reliability), the
 [answer-gating pattern](#gating-a-support-bots-answers) for support bots,
 structured-verdict scope fields, usage & cost observability (`GET /stats`), an
-optional [PDF→Markdown preprocessor](#preparing-documents-pdfs-scans-tables), and
-the zero-install web UI. What remains is **deliberately deferred, design-first**
-work — cross-document queries (concat / diff / federate) and multi-user / RBAC.
+optional [PDF→Markdown preprocessor](#preparing-documents-pdfs-scans-tables),
+the zero-install web UI, and the
+[agent grounding gate](docs/AGENTS.md) (`integrations/`). What remains is a
+small post-audit backlog (async ingest, auto-drafted calibration batteries)
+plus **deliberately deferred, design-first** work — cross-document queries
+(concat / diff / federate) and multi-user / RBAC.
 Full plans for everything, from design to tests, live in
 **[docs/ROADMAP.md](docs/ROADMAP.md)**, written so a contributor can pick one up
 without this context — or open an issue to discuss one first.

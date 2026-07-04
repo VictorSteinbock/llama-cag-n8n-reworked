@@ -17,16 +17,28 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 
 | # | Feature | Tier | Effort | Status |
 |---|---------|------|--------|--------|
-| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Shipped (branch) |
-| F2 | Answer-gating pattern + fail-safe gate | Composition | S | Shipped (branch) |
-| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Shipped (branch) |
-| F4 | Per-canon reliability battery (calibration) | New capability | M | Shipped (branch) |
-| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Shipped (branch) |
-| F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Shipped (branch) |
+| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Shipped (main) |
+| F1b | MCP `verify` tool | Core upgrade | XS | Shipped (main) |
+| F2 | Answer-gating pattern + fail-safe gate | Composition | S | Shipped (main) |
+| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Shipped (main) |
+| F4 | Per-canon reliability battery (calibration) | New capability | M | Shipped (main) |
+| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Shipped (main) |
+| F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Shipped (main) |
 | F7 | Cross-document queries (concat / diff / federate) | Rework | L | Design-first |
 | F8 | Multi-user / RBAC | Product fork | XL | Design-first |
-| F9 | Zero-install web UI (served at `/ui`) | New capability | M | Shipped (branch) |
-| F10 | Sample documents + guided first-run | Tooling | S | Shipped (branch) |
+| F9 | Zero-install web UI (served at `/ui`) | New capability | M | Shipped (main) |
+| F10 | Sample documents + guided first-run | Tooling | S | Shipped (main) |
+| F11 | Agent grounding gate (`integrations/`: cag_gate + Hermes + OpenClaw) | New capability | M | Shipped (main) |
+| F12 | Async ingest (202 + status poll; non-blocking MCP) | Core upgrade | M | Ready |
+| F13 | Auto-generated calibration battery | Tooling | S | Ready |
+| F14 | Per-document prompt boundary marker (hostile-canon hardening) | Core upgrade | S | Design-first |
+| F15 | Deferred DB columns (`cache_source`, `reliability`) + capability probe | Follow-up | S | Ready |
+
+Still gating the **v2.1 tag** (not a feature): the Phase-4 live-model
+verification run from
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — everything above is verified
+with fakes, offline browsers, and CI; one real boot with the default model
+closes the loop.
 
 ---
 
@@ -85,8 +97,8 @@ exist.
 `api/app/cag.py`; a pure helper module `api/app/grounding.py`; the
 `claim-verification-workflow.json` retargets from `/query` to `/verify`
 (simpler, and every consumer benefits). No change to `/query`, so nothing
-downstream breaks. Optionally the MCP server gains a `verify_claim` tool later
-(separate small follow-up, not required here).
+downstream breaks. (The MCP follow-up shipped too: the server exposes a `verify`
+tool — F1b.)
 
 **Implementation steps.**
 1. `api/app/grounding.py` (stdlib only — no new dependency): `def
@@ -443,6 +455,110 @@ including a Verify example that shows a `contradicted` catch.
   quote field (hardened by **F1**) is the honest, buildable version of "show me
   where this came from."
 
+## Shipped since the original list
+
+### F11 — Agent grounding gate (`integrations/`)
+
+Shipped on main (see [docs/AGENTS.md](AGENTS.md) for the design and
+[`../integrations/`](../integrations) for the code): the framework-agnostic
+`cag_gate` package (fail-safe `GroundingGate` with the fabricated-quote check
+and the **evidence floor** `min_grounded_quote_chars`, 15 unit tests), the
+Hermes Agent plugin (`cag_verify`/`cag_ask`/`cag_remember` tools, reactive
+`post_tool_call` tripwire, `CAG_OVERRIDE_MEMORY=1` hard gate,
+`CAG_ABSENT_TO_MEMORY=1` episodic-memory tagging), the OpenClaw `cag-verify`
+skill (stdlib-only, fail-closed exit codes), and a CI job. Anything still
+listed below is *not* part of this.
+
+## Post-audit backlog (added 2026-07-04)
+
+Three items born from the external hardening + utility audits. Same contract as
+above: executable without further context.
+
+### F12 — Async ingest (202 + status poll)
+
+**What & why.** Ingest warms synchronously — deliberate ("warm-at-ingest": the
+first question is never the slow one) but on CPU a big document blocks the HTTP
+call, and the MCP `ingest_file` call, for **minutes**. In Claude Code that looks
+like a hang; the utility audit ranked it a top adoption blocker.
+
+**Sketch.** Additive only — the default stays synchronous. `POST /documents`
+gains `?mode=async`: insert the row (`status=pending`), return **202** with
+`{id, status: "pending"}`, then run the existing warm through the engine's
+deferred-work runner (`_spawn`, same pattern as the self-heal re-save) and mark
+`cached`/`failed` as today. Dedupe check stays *before* the 202 (an identical
+re-drop still returns the existing row immediately). MCP `ingest_file` uses
+async mode and returns "warming — check `list_documents` in a few minutes"; the
+web UI already polls `GET /documents`, so it needs nothing.
+
+**Invariants.** Warm still serializes under `_lock` (the background thread
+queues like any other slot user); no new state machine — `pending → cached |
+failed` already exists in the schema; API additive (202 only when explicitly
+requested).
+
+**Tests.** Fakes: async ingest returns 202 + pending; after the deferred runner
+fires, the row is `cached` and a query works; dedupe of an in-flight document
+returns the existing row; failure path marks `failed` with the error.
+
+**Done when.** MCP ingest of a large document returns in under a second and the
+document becomes queryable on its own a few minutes later.
+
+### F13 — Auto-generated calibration battery
+
+**What & why.** F4's honest cost is authoring the known-answer battery by hand
+(hours, and it blocks the compliance persona). Let the stack draft it: the model
+reads the canon it will be measured on and proposes the Q/A pairs; a human
+approves.
+
+**Sketch.** `POST /documents/{id}/calibrate/generate {n}` → one `query()` at
+`temperature 0` with a `json_schema` for
+`{"items": [{"question": ..., "expected": ...}]}` asking for *n* short,
+unambiguous, answer-in-the-text pairs spread across the document. Return them
+for **human review** — never auto-run into `/calibrate`. Cap `n` at
+`CALIBRATE_MAX_ITEMS`.
+
+**Honest limit (document it).** Same-model circularity: a self-drafted battery
+measures *recall stability* (lost-in-the-middle, format drift) — exactly what
+`absent`-rate calibration needs — but it cannot measure whether the model
+misreads the text, because the drafter and the examinee are the same model.
+Human review of the pairs is the mitigation, and it's still 10× faster than
+authoring.
+
+**Tests.** Fakes: generate returns the schema shape; `n` over the cap → 422
+naming the knob; a generated battery round-trips into `calibrate()`.
+
+**Done when.** Draft battery in one call, human trims it, `/calibrate` scores it.
+
+### F14 — Per-document prompt boundary marker (Design-first)
+
+**What & why.** `SYSTEM_TEMPLATE` wraps content in `<document>` tags; a hostile
+document containing `</document>` can pose as instructions beyond its boundary.
+Documented today as a trust boundary ("the canon is trusted input" — README);
+this item would harden it: an unguessable per-document boundary id generated at
+ingest, stored on the row, used in the wrapper (`<document id="…">…</document
+id="…">`) so content cannot forge its own closing tag.
+
+**Why design-first, not code.** (a) The system message must stay byte-identical
+per document — a *stored* nonce satisfies that, but the template change
+invalidates **every existing cache once** (self-heal absorbs it: one slow query
+per document). (b) The threat model is single-operator ingesting their own
+documents; the payoff is real mainly for third-party/untrusted canons. Decide
+whether that trade is worth the churn before building.
+
+### F15 — Deferred DB columns + startup capability probe
+
+**What & why.** Two optional columns were deliberately **cut** from the v2.1
+build (a `hasattr` check is not DB tolerance — unmigrated deployments would
+500): `query_log.cache_source` (memory/disk/recomputed distribution in `/stats`)
+and `documents.reliability` (surface the last calibration score in
+`GET /documents`). Shipping them needs the full kit: migrations
+`database/migrations/001_cache_source.sql` + `002_reliability.sql`, a startup
+capability probe (feature lights up only when the column exists), an "Updating &
+maintenance" note, and additive API fields. The engine hook for reliability
+already exists (`set_reliability` no-ops until the column lands).
+
+**Done when.** A fresh deployment gets both features; an unmigrated one keeps
+working with them dark.
+
 ## Tier 3 — reworks that need a decision first
 
 ### F7 — Cross-document queries (concat / diff / federate)
@@ -497,9 +613,9 @@ RAG-first product.
 
 1. Open an issue naming the feature (F#) so work isn't duplicated.
 2. Follow the plan; respect the invariants above.
-3. `ruff check --no-cache api mcp` clean; `pytest api -q` and `pytest mcp -q`
-   green; workflow JSON validated by the CI check; `docker compose config -q`
-   passes if you touched compose.
+3. `ruff check --no-cache api mcp integrations` clean; `pytest api -q`,
+   `pytest mcp -q`, and `pytest integrations -q` green; workflow JSON validated
+   by the CI check; `docker compose config -q` passes if you touched compose.
 4. Keep API changes additive and update the three-places-must-agree config if
    you added a knob.
 5. Update the relevant docs (README section, this file's status) in the same PR.
