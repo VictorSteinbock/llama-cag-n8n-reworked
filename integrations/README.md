@@ -11,8 +11,8 @@ code.
 | Path | What it is |
 |---|---|
 | [`cag_gate/`](cag_gate) | The tested, framework-agnostic core: a `GroundingGate` that turns a `POST /verify` verdict into a fail-safe `Decision` (allow / quarantine / block / escalate). Stdlib only. |
-| [`hermes/`](hermes) | A [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: `cag_verify` / `cag_ask` / `cag_remember` tools + a reactive memory-quarantine hook (a tripwire log by itself — set `CAG_OVERRIDE_MEMORY=1` for the hard gate). |
-| [`openclaw/`](openclaw) | A [OpenClaw](https://docs.openclaw.ai) `cag-verify` skill (`SKILL.md` + a self-contained checker) — the fact-check OpenClaw doesn't ship. |
+| [`hermes/`](hermes) | A [Hermes Agent](https://hermes-agent.nousresearch.com) plugin: `cag_verify` / `cag_ask` / `cag_remember` tools + hooks — on current Hermes the `pre_tool_call` hook hard-blocks ungrounded direct memory writes; on older builds it degrades to a tripwire log (set `CAG_OVERRIDE_MEMORY=1` there for the hard gate). |
+| [`openclaw/`](openclaw) | A [OpenClaw](https://docs.openclaw.ai) `cag-verify` skill (`SKILL.md` + a self-contained checker) — the fact-check OpenClaw doesn't ship — plus a `before_tool_call` veto-hook recipe for hard-gating memory writes. |
 | [`tests/`](tests) | The fail-safe matrix + the before/after "compounding loop is broken" trace. |
 
 ## Quick start
@@ -20,7 +20,7 @@ code.
 ```bash
 # 1. run the stack and ingest your canon (see the repo README), then:
 pip install -e ./integrations           # exposes the `cag_gate` package
-pytest integrations                      # 11 tests, no services needed
+pytest integrations                      # 19 tests, no services needed
 ```
 
 Programmatic use of the core:
@@ -45,12 +45,16 @@ adapter, or call `POST /verify` directly from any other runtime.
 | `supported` but quote fabricated | quarantine | block |
 | `supported` but quote too short/generic to be evidence | quarantine | escalate |
 | `contradicted` | quarantine | block |
-| `absent` (not in canon) | quarantine (tag unverified) | escalate to human |
+| `absent`, recall probe near zero (canon really is silent) | quarantine (tag unverified) | escalate to human |
+| `absent` but the recall probe finds the topic discussed | escalate (tag absent-but-topic-present) | escalate |
 | oracle unreachable / unknown | quarantine | escalate |
 
 Only `supported` with a **grounded, non-trivial** quote is ever trusted — the
 byte-check proves a quote's *existence*, not its sufficiency, so quotes under
 the evidence floor (`Policy.min_grounded_quote_chars`, default 12 collapsed
 chars; a generic "is the" grounds in any document) are never counted as
-evidence. Everything else is kept out of "verified" memory or routed to a
-human — fail closed.
+evidence. `absent` is split by the oracle's mechanical **recall probe**
+(`Policy.absent_recall_overlap`, default 0.5): a corroborated absence
+quarantines with the overlap number in the reason; an absence whose vocabulary
+the canon clearly discusses escalates and is never stored. Everything else is
+kept out of "verified" memory or routed to a human — fail closed.

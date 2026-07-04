@@ -13,10 +13,17 @@ Tools
     the built-in ``memory`` tool — or set ``CAG_OVERRIDE_MEMORY=1`` to replace
     the built-in ``memory`` tool outright (hard enforcement; see README).
 
-Hooks (observers — Hermes ignores their return value except ``pre_llm_call``)
-  * ``post_tool_call`` — reactive safety net: if the agent used the *built-in*
-    memory tool directly, re-verify the written text and quarantine it if the
-    canon contradicts it.
+Hooks
+  * ``pre_tool_call``  — **hard gate** on direct writes through the built-in
+    memory tool: current Hermes honors ``{"action": "block", "message": ...}``
+    from this hook and short-circuits the tool call, so an ungrounded write
+    never lands. Older builds ignore hook return values — there this degrades
+    to a no-op and the tripwire below still records the conflict. Skipped when
+    ``CAG_OVERRIDE_MEMORY=1`` (the memory tool *is* the gate there, and blocking
+    would defeat its tagged-episodic storage).
+  * ``post_tool_call`` — reactive safety net for those older builds (and for
+    memory tools this plugin doesn't know by name): if a direct write did land,
+    re-verify it and record the conflict in the quarantine file.
   * ``pre_llm_call``   — inject a one-line grounding reminder into each turn
     (optional; delete the registration if you don't want it).
 
@@ -86,6 +93,8 @@ def cag_verify_tool(args: dict, **kwargs) -> str:
         "quote": verdict.quote,
         "quote_grounded": verdict.quote_grounded,
         "conditions": verdict.conditions,
+        "recall_overlap": verdict.recall_overlap,
+        "tag": decision.tag,
     })
 
 
@@ -104,12 +113,20 @@ def cag_remember_tool(args: dict, **kwargs) -> str:
     if decision.trusted:
         _append(_memory_path(), f"- {fact}")
         return json.dumps({"stored": True, "verified": True, "reason": decision.reason})
-    if decision.verdict.verdict == "absent" and _truthy("CAG_ABSENT_TO_MEMORY"):
+    if (
+        decision.verdict.verdict == "absent"
+        and decision.tag == "unverified"  # NOT "absent-but-topic-present"
+        and _truthy("CAG_ABSENT_TO_MEMORY")
+    ):
         # Episodic/subjective memories ("user prefers terse answers") are
         # inherently absent from a technical canon. With this flag they stay
         # USABLE in the memory file — visibly tagged, never verified — instead
         # of flooding the quarantine file. Recommended with the hard gate
         # (CAG_OVERRIDE_MEMORY=1), where ALL writes pass through here.
+        # The tag guard matters: when the oracle's recall probe shows the canon
+        # DOES discuss the claim's vocabulary, "absent" may be a missed passage
+        # or a twisted claim — that case escalates and is never stored, not
+        # even tagged.
         _append(_memory_path(), f"- [unverified] {fact}")
         return json.dumps({
             "stored": True, "verified": False, "tagged": "unverified",
@@ -133,10 +150,37 @@ def cag_remember_tool(args: dict, **kwargs) -> str:
 _BUILTIN_MEMORY_TOOLS = {"memory", "remember", "save_memory"}
 
 
+def _on_pre_tool_call(tool_name, args, task_id=None, **kwargs):
+    """Hard gate on direct built-in memory writes. Current Hermes honors a
+    ``{"action": "block", "message": ...}`` return from ``pre_tool_call`` (the
+    tool call is short-circuited and ``message`` is returned to the model as the
+    error); older builds ignore the return value, where this is a no-op and the
+    ``post_tool_call`` tripwire still records the conflict after the fact."""
+    if _truthy("CAG_OVERRIDE_MEMORY"):
+        return None  # the memory tool IS cag_remember already — it self-gates
+    if tool_name not in _BUILTIN_MEMORY_TOOLS:
+        return None
+    fact = (args or {}).get("fact") or (args or {}).get("content") or ""
+    if not fact.strip():
+        return None
+    decision = _gate().gate_memory_write(fact)
+    if decision.trusted:
+        return None
+    _append(_quarantine_path(), f"- [pre-block:{decision.tag}] {fact}  ({decision.reason})")
+    return {
+        "action": "block",
+        "message": (
+            f"memory write blocked by the CAG grounding gate: {decision.reason}. "
+            "Store facts through cag_remember (verified writes) or re-check the source."
+        ),
+    }
+
+
 def _on_post_tool_call(tool_name, args, result, task_id=None, **kwargs) -> None:
-    """Reactive net: if the agent wrote memory *directly*, quarantine it if the
-    canon contradicts it. Cannot un-write (hooks are observers), but records the
-    conflict so a hygiene pass / human can act — and future turns see the flag."""
+    """Reactive net for builds whose hooks cannot veto (and for memory tools not
+    in ``_BUILTIN_MEMORY_TOOLS``): a landed write can't be undone here, but the
+    conflict is recorded so a hygiene pass / human can act — and future turns
+    see the flag."""
     if tool_name not in _BUILTIN_MEMORY_TOOLS:
         return
     fact = (args or {}).get("fact") or (args or {}).get("content") or ""
@@ -191,16 +235,21 @@ def register(ctx):
     ctx.register_tool(
         name="cag_remember", toolset=TOOLSET, schema=_FACT_SCHEMA, handler=cag_remember_tool,
     )
-    # Hard enforcement: CAG_OVERRIDE_MEMORY=1 replaces the built-in memory tool,
-    # so EVERY memory write goes through the gate. Without it the cag_* tools are
-    # companions the agent must be instructed to prefer, and the post_tool_call
-    # hook below is only a reactive tripwire — Hermes hooks are observers and
-    # cannot veto a write that already happened. (Match the schema to your
+    # Two ways to hard-gate the built-in memory tool, pick per taste:
+    #   1. (default) the pre_tool_call hook below BLOCKS ungrounded writes on
+    #      current Hermes — the model gets the gate's reason as a tool error.
+    #   2. CAG_OVERRIDE_MEMORY=1 replaces the built-in memory tool with
+    #      cag_remember outright — writes come back as stored/quarantined/tagged
+    #      results instead of errors (and CAG_ABSENT_TO_MEMORY tagging works).
+    #      The pre-hook steps aside when the override is on.
+    # On older Hermes builds whose hooks cannot veto, option 2 is the only hard
+    # gate and the hooks are a reactive tripwire. (Match the schema to your
     # Hermes version's memory tool if it differs.)
     if _truthy("CAG_OVERRIDE_MEMORY"):
         ctx.register_tool(
             name="memory", toolset=TOOLSET, schema=_FACT_SCHEMA,
             handler=cag_remember_tool, override=True,
         )
+    ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)

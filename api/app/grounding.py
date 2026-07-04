@@ -17,8 +17,11 @@ Two tiers:
    instead of O(n^2) over every offset.
 
 This verifies the quote's *existence*, not the claim's *entailment*: it hardens
-``supported``/``contradicted`` (a passage exists to check) but cannot harden
-``absent`` (there is nothing to look for).
+``supported``/``contradicted`` (a passage exists to check). ``absent`` has no
+quote to check at all — for that, :func:`recall_probe` runs the machinery in
+reverse: it scans the *claim's* vocabulary against the document so an "absent"
+verdict is at least corroborated (or challenged) by an auditable number instead
+of resting on the model's say-so alone.
 """
 
 import re
@@ -145,7 +148,8 @@ def grounding(quote: str, content: str, *, threshold: float = 0.9) -> dict:
     Returns ``{"grounded": bool | None, "match_ratio": float, "method": str}``:
 
     - empty/whitespace quote -> ``grounded=None``, ``method="absent"`` (nothing
-      to check -- used for the ``absent`` verdict, which grounding cannot harden);
+      to check -- used for the ``absent`` verdict, which grounding cannot harden;
+      :func:`recall_probe` corroborates it instead);
     - exact normalized substring -> ``grounded=True``, ``match_ratio=1.0``,
       ``method="exact"``;
     - otherwise the best anchored-window difflib ratio -> ``method="fuzzy"``,
@@ -161,3 +165,82 @@ def grounding(quote: str, content: str, *, threshold: float = 0.9) -> dict:
         return {"grounded": True, "match_ratio": 1.0, "method": "exact"}
     best = _best_fuzzy_ratio(nq, nc)
     return {"grounded": best >= threshold, "match_ratio": round(best, 4), "method": "fuzzy"}
+
+
+# Content tokens for the recall probe: words of >=4 chars carry the topic
+# signal; bare numbers of ANY length are kept because quantities ("40", "1000")
+# are often the very thing a claim gets wrong. A small English stopword list
+# keeps common glue words from inflating overlap — a heuristic aid, harmless
+# for other languages (their glue words are simply not filtered).
+_CONTENT_TOKEN = re.compile(r"\w{4,}|\d+")
+_PROBE_STOPWORDS = frozenset(
+    "that this with from have been being will would should could these those "
+    "when where what which while there their them they your yours than then "
+    "does must about into over under between because after before other only "
+    "also some such more most each every here very much many both against".split()
+)
+
+
+def recall_probe(claim: str, content: str, *, window_chars: int = 400) -> dict:
+    """Mechanical topic-recall probe for the ``absent`` verdict.
+
+    ``grounding()`` can prove a quote exists; nothing can prove absence. This
+    probe *corroborates* an ``absent`` verdict instead: it measures how much of
+    the claim's distinctive vocabulary co-occurs inside any ~``window_chars``
+    stretch of the (normalized) document.
+
+    - ``max_overlap`` near 0.0 — the document never mentions these things:
+      "absent" is backed by an auditable number, not just the model's say-so.
+    - ``max_overlap`` high — the document DOES discuss this vocabulary
+      somewhere; an "absent" verdict deserves escalation (the oracle may have
+      missed a passage, or the claim twists a topic that is really there).
+
+    Returns ``{"max_overlap": float | None, "checked_tokens": int,
+    "excerpt": str | None}``. ``max_overlap`` is ``None`` when the claim has
+    fewer than two distinctive tokens (nothing to measure — treat as
+    inconclusive, not as corroboration). ``excerpt`` is the best-matching
+    region of the *normalized* (lowercased) document — a locator hint for
+    humans, never a quotable passage.
+    """
+    n_claim = _normalize(claim)
+    n_content = _normalize(content)
+    tokens = {t for t in _CONTENT_TOKEN.findall(n_claim) if t not in _PROBE_STOPWORDS}
+    if len(tokens) < 2:
+        return {"max_overlap": None, "checked_tokens": len(tokens), "excerpt": None}
+
+    # One linear pass collects only the positions where a claim token occurs;
+    # the sliding window then walks those hits (not the whole document), so
+    # cost scales with the number of matches.
+    hits = [
+        (m.start(), m.group())
+        for m in _CONTENT_TOKEN.finditer(n_content)
+        if m.group() in tokens
+    ]
+    if not hits:
+        return {"max_overlap": 0.0, "checked_tokens": len(tokens), "excerpt": None}
+
+    best = 0
+    best_lo = best_hi = 0
+    counts: dict[str, int] = {}
+    distinct = 0
+    lo = 0
+    for hi_pos, word in hits:
+        counts[word] = counts.get(word, 0) + 1
+        if counts[word] == 1:
+            distinct += 1
+        while hi_pos - hits[lo][0] > window_chars:
+            lo_word = hits[lo][1]
+            counts[lo_word] -= 1
+            if counts[lo_word] == 0:
+                distinct -= 1
+            lo += 1
+        if distinct > best:
+            best, best_lo, best_hi = distinct, hits[lo][0], hi_pos
+    excerpt = n_content[max(0, best_lo - 40) : best_hi + 60]
+    if len(excerpt) > 240:
+        excerpt = excerpt[:240]
+    return {
+        "max_overlap": round(best / len(tokens), 4),
+        "checked_tokens": len(tokens),
+        "excerpt": excerpt or None,
+    }

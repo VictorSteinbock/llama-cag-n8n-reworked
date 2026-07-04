@@ -160,6 +160,54 @@ def test_evidence_floor_can_be_disabled():
     assert gate.gate_memory_write("x").action is Action.ALLOW
 
 
+# --- "absent" corroboration: the oracle's recall probe feeds the gate ---------
+
+def v_absent_with_recall(overlap):
+    def oracle(claim, document_id=None):
+        return {
+            "verdict": "absent", "quote": "", "quote_grounded": None,
+            "recall": {
+                "max_overlap": overlap,
+                "checked_tokens": 4,
+                "excerpt": "the warranty period is 24 months" if overlap else None,
+            },
+        }
+    return oracle
+
+
+def test_absent_but_topic_present_escalates_and_never_stores():
+    # The canon clearly discusses this vocabulary, yet the oracle said absent:
+    # a possible missed passage or twisted claim. Escalate memory AND action —
+    # this must never ride the quarantine/episodic path.
+    gate = GroundingGate(verify=v_absent_with_recall(0.8))
+    mem = gate.gate_memory_write("The warranty period is 36 months")
+    assert mem.action is Action.ESCALATE
+    assert mem.tag == "absent-but-topic-present"
+    assert mem.trusted is False
+    assert gate.gate_action("The warranty period is 36 months").action is Action.ESCALATE
+
+
+def test_absent_with_near_zero_recall_is_corroborated():
+    gate = GroundingGate(verify=v_absent_with_recall(0.0))
+    mem = gate.gate_memory_write("Undocumented claim")
+    assert mem.action is Action.QUARANTINE and mem.tag == "unverified"
+    assert "corroborates" in mem.reason  # the number is in the audit trail
+
+
+def test_absent_without_recall_field_behaves_as_before():
+    # Older oracle (no recall field): decisions and reasons stay exactly as they were.
+    mem = GroundingGate(verify=v_absent).gate_memory_write("Undocumented claim")
+    assert mem.action is Action.QUARANTINE and mem.tag == "unverified"
+    assert "corroborates" not in mem.reason
+
+
+def test_absent_recall_check_can_be_disabled():
+    gate = GroundingGate(
+        verify=v_absent_with_recall(0.9), policy=Policy(absent_recall_overlap=None)
+    )
+    assert gate.gate_memory_write("x").action is Action.QUARANTINE
+
+
 def test_document_id_is_forwarded():
     seen = {}
 

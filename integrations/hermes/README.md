@@ -13,7 +13,8 @@ retrieved-and-reinforced on a later turn. The design and the *why* are in
 | tool | `cag_verify(claim)` | fail-safe verdict for a factual claim (Read-grounding) |
 | tool | `cag_ask(question)` | ask the canon a question (Read-grounding) |
 | tool | `cag_remember(fact)` | **Write-Validation** — verify *before* persisting; grounded facts are saved, the rest go to a quarantine file |
-| hook | `post_tool_call` | reactive net: flags a *direct* built-in memory write that the canon contradicts |
+| hook | `pre_tool_call` | **veto**: blocks an ungrounded *direct* built-in memory write before it lands (current Hermes; steps aside under `CAG_OVERRIDE_MEMORY=1`) |
+| hook | `post_tool_call` | reactive net: flags a direct memory write that landed anyway (older builds, unknown memory tools) |
 | hook | `pre_llm_call` | injects a one-line grounding reminder each turn (optional) |
 
 The decision logic lives in the unit-tested [`cag_gate`](../cag_gate) package;
@@ -48,18 +49,29 @@ The decision logic lives in the unit-tested [`cag_gate`](../cag_gate) package;
 
 ## Enforcement strength (be honest about it)
 
-Hermes `pre_tool_call`/`post_tool_call` hooks are **observers** — their return
-value is ignored, so a hook cannot *veto* a write. That leaves two levels:
+Three levels, depending on your Hermes build and flags:
 
-- **Soft (default):** the agent is instructed to use `cag_remember`, and
-  `post_tool_call` flags any direct built-in memory write the canon contradicts —
-  a **tripwire log**, not a gate: the built-in write has already persisted by the
-  time the hook sees it. Good hygiene; relies on the agent following instructions.
-- **Hard:** set `CAG_OVERRIDE_MEMORY=1` — the plugin registers the gate under the
-  built-in `memory` tool's name with `override=True`, so *every* memory write is
-  gated regardless of what the model chooses. This is the level at which the
-  write-validation story holds unconditionally; match your Hermes version's
+- **Hook veto (default on current Hermes):** `pre_tool_call` returns
+  `{"action": "block", "message": …}` for a direct built-in memory write that
+  fails the gate — Hermes short-circuits the tool and the model receives the
+  gate's reason as the tool error, so the write never lands. The blocked fact
+  is also recorded in the quarantine file, tagged `pre-block:`.
+- **Override:** set `CAG_OVERRIDE_MEMORY=1` — the plugin registers the gate
+  under the built-in `memory` tool's name with `override=True`, so *every*
+  memory write goes through `cag_remember`. Nicer UX than tool errors (writes
+  come back as stored/quarantined/tagged results), required for
+  `CAG_ABSENT_TO_MEMORY` episodic tagging, and the only hard gate on older
+  builds. The pre-hook steps aside when this is on. Match your Hermes version's
   memory-tool arg schema if it differs.
+- **Tripwire (older builds without the override):** hooks whose return values
+  are ignored cannot veto; `post_tool_call` still re-verifies direct writes and
+  logs conflicts to the quarantine file. A record, not a gate.
+
+An `absent` verdict also carries the oracle's mechanical **recall probe** now:
+corroborated absences (near-zero vocabulary overlap) quarantine — or store
+tagged `[unverified]` under `CAG_ABSENT_TO_MEMORY=1` — while
+*absent-but-topic-present* (the canon clearly discusses the claim's vocabulary)
+escalates and is never stored, not even tagged.
 
 ## What "gated" looks like
 

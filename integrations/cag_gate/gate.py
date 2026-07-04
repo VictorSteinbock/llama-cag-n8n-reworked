@@ -54,12 +54,18 @@ class Verdict:
     conditions: str = ""
     match_ratio: Optional[float] = None
     grounding_method: str = ""
+    # /verify's mechanical recall probe for "absent" (recall.max_overlap): how
+    # much of the claim's vocabulary co-occurs anywhere in the canon. None when
+    # the oracle predates the field or the probe was inconclusive.
+    recall_overlap: Optional[float] = None
     error: Optional[str] = None         # set when the oracle could not be reached / failed
 
     @classmethod
     def from_response(cls, claim: str, data: object) -> "Verdict":
         if not isinstance(data, dict):
             return cls.unavailable(claim, f"unexpected response type: {type(data).__name__}")
+        recall = data.get("recall")
+        overlap = recall.get("max_overlap") if isinstance(recall, dict) else None
         return cls(
             claim=claim,
             verdict=data.get("verdict"),
@@ -68,6 +74,7 @@ class Verdict:
             conditions=data.get("conditions") or "",
             match_ratio=data.get("match_ratio"),
             grounding_method=data.get("grounding_method") or "",
+            recall_overlap=overlap if isinstance(overlap, (int, float)) else None,
         )
 
     @classmethod
@@ -114,6 +121,14 @@ class Policy:
     # whitespace collapsed) is therefore never treated as evidence: the write is
     # quarantined / the action escalated. Heuristic, not proof — 0 disables.
     min_grounded_quote_chars: int = 12
+    # "Absent" corroboration: /verify's recall probe reports how much of the
+    # claim's vocabulary co-occurs in the canon (Verdict.recall_overlap). At or
+    # above this overlap an "absent" verdict is not taken at face value — the
+    # canon clearly discusses the topic, so the oracle may have missed a passage
+    # or the claim twists something that is really there. Such claims ESCALATE
+    # (memory and action alike) and must never be stored, not even tagged
+    # episodic/unverified. None disables (e.g. an oracle without the field).
+    absent_recall_overlap: Optional[float] = 0.5
 
     @classmethod
     def strict(cls) -> "Policy":
@@ -186,8 +201,21 @@ class GroundingGate:
             return Decision(act, reason, v, tag="contradicts-canon")
 
         if v.verdict == "absent":
+            floor = self.policy.absent_recall_overlap
+            if floor is not None and v.recall_overlap is not None and v.recall_overlap >= floor:
+                return Decision(
+                    Action.ESCALATE,
+                    "verdict is 'absent' but the canon discusses this vocabulary "
+                    f"(recall overlap {v.recall_overlap:.2f} >= {floor}) — possible "
+                    "missed passage or twisted claim; needs a human",
+                    v,
+                    tag="absent-but-topic-present",
+                )
+            reason = "not found in the canon (cannot be grounded)"
+            if v.recall_overlap is not None:
+                reason += f" — recall probe corroborates (overlap {v.recall_overlap:.2f})"
             act = self.policy.on_absent_action if is_action else self.policy.on_absent_memory
-            return Decision(act, "not found in the canon (cannot be grounded)", v, tag="unverified")
+            return Decision(act, reason, v, tag="unverified")
 
         # Unknown / missing verdict -> fail closed.
         act = Action.ESCALATE if is_action else Action.QUARANTINE

@@ -93,6 +93,22 @@ def _render_verdict(result: dict) -> str:
     if quote:
         lines.append(f'quote: "{quote}"')
     lines.append(grounded_line)
+    # For "absent" the API adds a mechanical recall probe: how much of the
+    # claim's vocabulary co-occurs anywhere in the document. Surface it so the
+    # agent knows whether the absence is corroborated or suspicious.
+    overlap = (result.get("recall") or {}).get("max_overlap")
+    if isinstance(overlap, (int, float)):
+        if overlap >= 0.5:
+            lines.append(
+                f"recall probe: overlap {overlap} — the document DOES discuss this "
+                "vocabulary; treat 'absent' with suspicion (possible missed passage "
+                "or twisted claim)"
+            )
+        else:
+            lines.append(
+                f"recall probe: overlap {overlap} — the claim's vocabulary barely "
+                "occurs in the document; the absence is corroborated"
+            )
     if conditions:
         lines.append(f"conditions: {conditions}")
     lines.append("")
@@ -211,11 +227,14 @@ def verify(claim: str, document_id: int | None = None) -> str:
     claim (e.g. "only if defective"), and a provenance line.
 
     Limits worth knowing: grounding hardens ``supported``/``contradicted`` (there
-    is a passage to check) but cannot harden ``absent`` (``quote_grounded`` is
-    ``n/a``), and it verifies the quote's *existence*, not the claim's
-    *entailment* — the model can still misread real evidence. Treat it as a
-    fail-safe gate: trust ``supported`` + grounded; route everything else to a
-    human.
+    is a passage to check). ``absent`` has no quote to check, so the response
+    carries a mechanical **recall probe** instead — how much of the claim's own
+    vocabulary occurs together anywhere in the document: near-zero overlap
+    corroborates the absence with a number; high overlap means the document DOES
+    discuss this topic and the "absent" deserves suspicion. And the byte-check
+    verifies the quote's *existence*, not the claim's *entailment* — the model
+    can still misread real evidence. Treat it as a fail-safe gate: trust
+    ``supported`` + grounded; route everything else to a human.
     """
     try:
         with _client() as client:

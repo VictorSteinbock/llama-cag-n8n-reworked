@@ -663,6 +663,32 @@ def test_verify_absent_leaves_grounding_none(engine, fake_llama):
     assert result["grounding_method"] == "absent"
 
 
+def test_verify_absent_carries_recall_probe(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+
+    # Vocabulary alien to the canon: near-zero overlap corroborates "absent".
+    fake_llama.answer_json = _verdict("absent", "")
+    clean = engine.verify_claim("The reactor coolant pressure exceeds specification")
+    assert clean["verdict"] == "absent"
+    assert clean["recall"]["max_overlap"] == 0.0
+
+    # A twisted version of a topic the canon DOES discuss: high overlap says
+    # "absent" should not be taken at face value downstream.
+    fake_llama.answer_json = _verdict("absent", "")
+    topical = engine.verify_claim("The capital of Freedonia is Metropolis")
+    assert topical["recall"]["max_overlap"] >= 0.5
+    assert topical["recall"]["excerpt"]
+
+
+def test_verify_non_absent_has_no_recall_field_payload(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict("supported", "The capital of Freedonia is Fredville")
+
+    result = engine.verify_claim("Fredville is the capital")
+
+    assert result["recall"] is None  # probe runs only for "absent"
+
+
 def test_verify_surfaces_conditions(engine, fake_llama):
     engine.ingest_text("facts.txt", DOC)
     fake_llama.answer_json = _verdict(

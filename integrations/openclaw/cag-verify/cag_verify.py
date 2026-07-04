@@ -59,7 +59,21 @@ def decide(data):
     if verdict == "contradicted":
         return "block", "contradicted by the canon" + (f': "{quote}"' if quote else "")
     if verdict == "absent":
-        return "escalate", "not found in the canon (cannot be grounded)"
+        # The oracle's recall probe (recall.max_overlap) mechanically checks
+        # whether the claim's vocabulary occurs in the canon at all: near-zero
+        # corroborates "absent"; high overlap means the topic IS there and the
+        # claim deserves a human look. Either way: not trusted (exit 1).
+        recall = data.get("recall") or {}
+        overlap = recall.get("max_overlap")
+        if isinstance(overlap, (int, float)) and overlap >= 0.5:
+            return "escalate", (
+                "absent, but the canon discusses this vocabulary (recall overlap "
+                f"{overlap:.2f}) — possible missed passage or twisted claim"
+            )
+        reason = "not found in the canon (cannot be grounded)"
+        if isinstance(overlap, (int, float)):
+            reason += f" — recall probe corroborates (overlap {overlap:.2f})"
+        return "escalate", reason
     return "escalate", f"unrecognized verdict: {verdict!r}"
 
 

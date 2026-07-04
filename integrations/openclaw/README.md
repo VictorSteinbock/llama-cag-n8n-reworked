@@ -33,6 +33,47 @@ design and the *why* are in [`../../docs/AGENTS.md`](../../docs/AGENTS.md).
   facts in `MEMORY.md` and moves any that come back `block`/`escalate` into a
   quarantine section. Counters the "uncontrolled memory growth" that drives drift.
 
+## Hard-gating memory writes with a plugin hook
+
+A skill asks the model to check; a hook makes the runtime enforce. Current
+OpenClaw plugins can veto tool calls from `before_tool_call` — return
+`{ block: true, blockReason }` to refuse the call outright, or
+`{ requireApproval: true }` to pause it for the human approval flow OpenClaw
+already has. A minimal gate wired to this API:
+
+```js
+// cag-gate hook sketch — written against docs.openclaw.ai/plugins/hooks
+// (mid-2026). Hook names/shapes move; verify against your installed version.
+api.on("before_tool_call", async ({ toolName, params }) => {
+  if (!/^memory/.test(toolName)) return;              // gate only memory writes
+  const fact = params?.content ?? params?.fact ?? "";
+  if (!fact.trim()) return;
+  let v;
+  try {
+    const res = await fetch(`${process.env.CAG_API_URL}/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ claim: fact }),
+    });
+    v = await res.json();
+  } catch {
+    return { block: true, blockReason: "grounding oracle unreachable — failing closed" };
+  }
+  const evidence = (v.quote || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+  const grounded = v.verdict === "supported" && v.quote_grounded === true
+    && evidence.length >= 12;                          // the evidence floor
+  if (grounded) return;                                // let the write through
+  if (v.verdict === "absent" && (v.recall?.max_overlap ?? 0) >= 0.5)
+    return { requireApproval: true };                  // topic present: human decides
+  return { block: true, blockReason: `CAG gate: ${v.verdict} — not stored (${v.quote || "no quote"})` };
+});
+```
+
+Same fail-closed table as the Python gate ([docs/AGENTS.md](../../docs/AGENTS.md#the-fail-safe-policy));
+the tested reference logic lives in [`cag_gate`](../cag_gate) if you'd rather
+port it wholesale. Prefer this hook over re-registering the memory tool from a
+plugin — dynamic tool re-registration has open reliability issues upstream.
+
 For programmatic use (your own tools, not a skill), the tested
 [`cag_gate`](../cag_gate) Python package exposes the same fail-safe policy as a
 `GroundingGate` object.

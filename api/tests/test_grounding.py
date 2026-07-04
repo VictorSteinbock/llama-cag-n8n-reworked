@@ -6,7 +6,7 @@ exactly which character it exercises (soft hyphen, NBSP, curly quotes, em-dash).
 
 import time
 
-from app.grounding import _normalize, grounding
+from app.grounding import _normalize, grounding, recall_probe
 
 DOC = (
     "The ACME Widget Pro battery lasts eighteen hours on a single full charge "
@@ -108,3 +108,52 @@ def test_soft_hyphen_not_at_linebreak_keeps_adjacent_space():
     result = grounding("co operate", content)
     assert result["method"] == "exact"
     assert _normalize(f"co{shy} operate") == "co operate"
+
+
+# --- F17: recall_probe (mechanical corroboration for "absent") ---------------
+
+def test_recall_probe_zero_overlap_corroborates_absent():
+    # A claim whose vocabulary the document never uses: absent is backed by 0.0.
+    result = recall_probe("the software license forbids commercial redistribution", DOC)
+    assert result["max_overlap"] == 0.0
+    assert result["excerpt"] is None
+    assert result["checked_tokens"] == 5
+
+
+def test_recall_probe_high_overlap_flags_twisted_topic():
+    # The claim is false (warranty is 24 months, not 36) so a good oracle says
+    # absent/contradicted — but its VOCABULARY is right there. High overlap must
+    # flag that "absent" deserves escalation, and the excerpt locates the region.
+    result = recall_probe("the warranty period is 36 months", DOC)
+    assert result["max_overlap"] == 0.75  # warranty, period, months hit; "36" does not
+    assert "warranty" in result["excerpt"]
+
+
+def test_recall_probe_numbers_count_as_signal():
+    # Bare numbers are kept as tokens ("40" here); short words ("is", "to") are not.
+    result = recall_probe("the maximum charge current is 40 amperes", DOC)
+    assert result["checked_tokens"] == 5  # maximum, charge, current, amperes, 40
+    assert result["max_overlap"] == 0.4   # charge + 40 occur; the rest do not
+
+
+def test_recall_probe_too_little_signal_is_inconclusive():
+    # One distinctive token (or none) measures nothing: None, not 0.0 — the gate
+    # must treat this as inconclusive rather than as corroboration.
+    assert recall_probe("Warranty?", DOC)["max_overlap"] is None
+    assert recall_probe("is it ok", DOC)["max_overlap"] is None
+
+
+def test_recall_probe_stopwords_do_not_inflate():
+    result = recall_probe("this is about that which have been there", DOC)
+    assert result["checked_tokens"] == 0
+    assert result["max_overlap"] is None
+
+
+def test_recall_probe_scores_co_occurrence_not_bag_of_words():
+    # Both topic words exist in the document but thousands of characters apart:
+    # no single window holds them together, so the score reflects the best
+    # window (2 of 3 tokens), not a document-wide bag-of-words match.
+    filler = "pad " * 2000  # ~8k chars; "pad" is <4 chars, never a token
+    doc = "alpha subsystem overview. " + filler + " beta subsystem details."
+    result = recall_probe("alpha beta subsystem", doc)
+    assert result["max_overlap"] == round(2 / 3, 4)

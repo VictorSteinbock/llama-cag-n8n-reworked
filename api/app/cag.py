@@ -31,7 +31,7 @@ from collections.abc import Callable
 from .config import Settings
 from .db import Database
 from .extract import extract_text
-from .grounding import grounding
+from .grounding import grounding, recall_probe
 from .llama import LlamaClient, LlamaError
 
 logger = logging.getLogger(__name__)
@@ -463,10 +463,14 @@ class CagEngine:
         occurs in the source bytes.
 
         Asymmetry worth stating plainly: grounding **hardens**
-        ``supported``/``contradicted`` (there is a passage to check) but **cannot**
-        harden ``absent`` (``quote_grounded=None``) — and it verifies the quote's
-        *existence*, not the claim's *entailment*. That gap is why F4 (calibration)
-        and F2 (answer-gating) exist.
+        ``supported``/``contradicted`` (there is a passage to check) but **cannot
+        ground** ``absent`` (``quote_grounded=None``) — and it verifies the quote's
+        *existence*, not the claim's *entailment*. ``absent`` therefore gets the
+        mechanical ``recall_probe`` instead (the ``recall`` response field): near-zero
+        overlap corroborates the verdict with an auditable number; high overlap says
+        the canon *does* discuss this vocabulary, so downstream gates should escalate
+        rather than quietly accept "absent". That residual gap is why F4
+        (calibration) and F2 (answer-gating) exist.
         """
         question = VERIFY_PROMPT_TEMPLATE.format(claim=claim)
         result = self.query(
@@ -513,6 +517,11 @@ class CagEngine:
         else:
             g = {"grounded": None, "match_ratio": 0.0, "method": "absent"}
 
+        # "absent" has no quote to ground, so corroborate it mechanically instead:
+        # does the claim's vocabulary co-occur anywhere in the canon? (Pure string
+        # work on the already-fetched content — no second model call.)
+        recall = recall_probe(claim, doc["content"]) if verdict == "absent" else None
+
         return {
             "claim": claim,
             "verdict": verdict,
@@ -521,6 +530,7 @@ class CagEngine:
             "quote_grounded": g["grounded"],
             "match_ratio": g["match_ratio"],
             "grounding_method": g["method"],
+            "recall": recall,
             "document": result["document"],
             "duration_ms": result["duration_ms"],
             "timings": result["timings"],
