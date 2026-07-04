@@ -82,6 +82,10 @@ receipt showing it only had to process your question, not the book.
 
 ## Is this for me?
 
+<p align="center">
+  <img src="images/is-this-for-you.svg" alt="A fit map. Great fit: many questions against one steady document; answers that must stay private; grounded, checkable answers; a bot or automation asking; a coding agent needing a pinned spec. Use another tool for: thousands of documents; a document too big to fit; multi-user logins; asking each document once; cross-document questions. Operating realities: warm once per document, text is the input, local and unauthenticated, sized to your RAM." width="100%">
+</p>
+
 **Yes, if:** you have a handful of dense documents — a product manual, a
 contract, a rulebook, a thesis — and you (or a chatbot, or an automation, or a
 coding assistant) will ask them many questions over time, and you'd like that
@@ -95,4 +99,6 @@ what they're great at), or documents too big to fit the Reader's attention span
 
 A computer with Docker installed and ~10 GB of memory to spare, one `python
 llamacag.py setup`, one `python llamacag.py start`, and patience for a one-time
-model download. Everything else is in the [README](../README.md).
+model download. For a calm, click-by-click walkthrough — including a
+*"let Claude Code do it"* option — see the **[setup guide](SETUP.md)**;
+everything else is in the [README](../README.md).

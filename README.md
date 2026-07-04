@@ -12,17 +12,60 @@ re-reading the document every time.**
 
 > **Not technical?** Read **[the two-minute, plain-words version](docs/EXPLAINER.md)**
 > — a brilliant reader, a filing clerk, and why reading once beats re-reading forever.
+>
+> **Nervous about the install?** The **[step-by-step setup guide](docs/SETUP.md)**
+> walks it in plain words — or, if you use Claude Code,
+> **[let it set everything up for you](docs/SETUP.md#let-claude-code-do-it)**.
 
-This is a self-hosted implementation of **Cache-Augmented Generation (CAG)**: a
-document is processed by the model **once**, the resulting KV cache (the model's
-internal state after reading it) is **saved to disk**, and every later question
-**restores** that state — so only your question and the answer are ever computed
-again. On CPU hardware, that turns minutes of prompt processing into seconds.
+You have a document you need to **ask questions of** — a product manual, a
+contract, a compliance binder, a vendor spec — and you'll ask it not once but
+dozens of times over the coming weeks. Every way of doing that today makes you
+give something up:
 
-Everything runs in Docker: [llama.cpp's `llama-server`](https://github.com/ggml-org/llama.cpp)
-for inference and cache persistence, a small FastAPI orchestrator (`cag-api`),
-[n8n](https://n8n.io/) for automation, and PostgreSQL for metadata. Works on
-Windows, macOS, and Linux — no host compilation, no external APIs.
+- **Send it to the cloud:** smart and fast, but your private document leaves the
+  building, and you pay for every question — re-reading the whole thing each new
+  session.
+- **Run a local model the ordinary way:** private and free, but it re-reads the
+  entire document from scratch on *every* question — minutes of waiting, every
+  single time.
+- **Chop it into a vector database (RAG):** quick, but the model only ever sees a
+  few retrieved snippets, never the whole document — so it misses whatever lives
+  in the connections between pages.
+
+None of those is the thing you actually want, which is simply *a model that has
+**read your document** and remembers it.*
+
+**That's what this is.** Hand it a document once; it reads the whole thing a
+single time, on your own hardware, and keeps that understanding. Every question
+afterward is answered against the **entire** document — in seconds, for free, and
+without a byte leaving your machine. **Read once. Ask forever.**
+
+**How, in a sentence:** this is a self-hosted implementation of **Cache-Augmented
+Generation (CAG)** — when the model reads your document, its internal state (the
+"KV cache") is saved to disk, and every later question *restores* that state
+instead of re-reading, so only your question and the answer are ever computed
+again. It all runs in Docker —
+[llama.cpp's `llama-server`](https://github.com/ggml-org/llama.cpp) for inference
+and cache persistence, a small FastAPI orchestrator (`cag-api`),
+[n8n](https://n8n.io/) for automation, and PostgreSQL for metadata — on Windows,
+macOS, or Linux, with no host compilation and no external APIs.
+
+## Is this for you?
+
+Before the details, here is the whole trade-off in one picture — the situations
+this is built for, the ones better served by another tool, and the operating
+realities that hold even in the sweet spot:
+
+<p align="center">
+  <img src="docs/images/is-this-for-you.svg" alt="Great fit: many questions against one steady document; answers that must stay private; grounded, checkable answers; a bot or automation doing the asking; a coding agent needing a pinned spec. Use another tool for: thousands of documents; a document too big to fit the context window; multi-user logins and roles; asking each document only once; cross-document questions. Operating realities: warm once per document (minutes on CPU, then seconds); text is the input (visual PDFs need a prepare pass); local and unauthenticated (loopback is the boundary); sized to your RAM." width="100%">
+</p>
+
+If the left column sounds like your problem, the rest of this README is worth
+your time. If the right column does, [CAG vs RAG](#cag-vs-rag-honestly) and
+[Why not just Open WebUI](#why-not-just-open-webui-or-anythingllm) point you
+onward, honestly. New to all this? Start with the
+[plain-words explainer](docs/EXPLAINER.md) or the
+[setup guide](docs/SETUP.md).
 
 ## Where this shines
 
@@ -219,6 +262,46 @@ something it must consult, and can be caught deviating from.
 
 The bundled verification workflow, as imported into n8n — seven of these ship in `n8n/workflows/`.
 
+## What it's actually like to run
+
+No mystery about where your things go or what this does to your computer. In
+plain words:
+
+**Where everything lives — all on your machine.**
+
+- Your **documents** stay in a normal folder you control (`./documents`), or you
+  upload them in the web UI. They are never sent anywhere.
+- The model's **memory** of each document is a cache file on your disk — one file
+  per document. That file is what lets it skip re-reading after a restart.
+- The **AI model itself** is one large file (~6.5 GB) downloaded once into a
+  private Docker volume; after that it runs with the internet switched off.
+- A small database on your disk keeps the records — which documents exist, what
+  was asked. None of this is in the cloud. *(The [Architecture](#architecture)
+  diagram shows all four pieces.)*
+
+**What it uses while running.** One steady cost, and the rest is quiet. Stack on
+but idle: it holds the model plus a fixed block of memory (sized by your
+settings) — flat, forever. Your CPU only works hard for one thing — the **first**
+time it reads each new document (minutes) — and every question after that is a
+brief blip. Adding more documents costs a little disk each and **no** extra
+memory. *(The full [resource story](#resource-anatomy--what-uses-what-when) is
+under the hood.)*
+
+**Switching models is safe now — this used to be the trap.** Home-grown versions
+of this idea had a nasty footgun: a saved memory was tied to the exact model that
+produced it, and loading it under a *different* model could silently hand you
+corrupt answers, with no warning. **This rebuild closes that hole for you.** It
+stamps each set of caches with a fingerprint of the model that made them; the
+moment you switch models (or even quant levels), it notices the mismatch and
+throws the stale memories away automatically — you *cannot* accidentally read one
+model's memory with another model. The only thing you'll notice is that right
+after a switch, the first question about each document is slow again (it re-reads,
+once), then fast forever. **Nothing here is yours to manage by hand:** the old
+warm-up / basic / fallback modes are gone, replaced by one automatic policy that
+runs the whole time. *(Specifics in
+[Updating & maintenance](#updating--maintenance) and
+[Choosing a model](#choosing-a-model-state-of-play-mid-2026).)*
+
 ## Quick start
 
 **Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
@@ -332,8 +415,10 @@ every task and paying to re-read it each turn, the agent calls the `ask_document
 tool: only the question and the answer cross the boundary, while the document
 stays pinned in a local KV cache the cloud model never has to carry. It's a thin
 stdio server (`python -m cag_mcp`) that just forwards to `cag-api` at
-`CAG_API_URL` (default `http://localhost:8000`), and it offers four tools —
-`list_documents`, `ask_document`, `ingest_text`, `ingest_file`.
+`CAG_API_URL` (default `http://localhost:8000`), and it offers five tools —
+`list_documents`, `ask_document`, `verify` (the
+[grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook) as
+an agent tool), `ingest_text`, and `ingest_file`.
 
 Register it with Claude Code (`pip install -e ./mcp` first, in the stack repo):
 
@@ -435,6 +520,8 @@ Interactive docs at http://localhost:8000/docs.
 | `DELETE /documents/{id}` | Remove document + its cache file |
 | `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
 | `POST /verify` | `{"claim": "...", "document_id"?: n, "max_tokens"?: n}` → a grounded verdict `{claim, verdict, quote, conditions, quote_grounded, match_ratio, grounding_method, …}`. Runs one `temperature 0` check and **mechanically** confirms the quote occurs in the source (`quote_grounded`) — a fabricated citation is caught with no extra model call. Tune strictness with `QUOTE_MATCH_THRESHOLD`. See [the grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook) |
+| `POST /documents/{id}/calibrate` | `{"qa": [{"question", "expected"}, …], "strict"?: bool}` → runs the known-answer battery at `temperature 0` and scores each answer: `{n, correct, accuracy, misses, strict, document}`. `accuracy` ≈ 1 − the expected miss rate for *this* canon under *this* model; `misses` shows what it got wrong. Capped at `CALIBRATE_MAX_ITEMS` (default 100) → `422`. See [Know your canon's reliability](#know-your-canons-reliability) |
+| `GET /stats` | Usage over the query log in three windows (`24h` / `7d` / `all`) — tokens evaluated vs. reused and the `reuse_ratio` — plus an optional cost-savings estimate (set `CLOUD_PRICE_PER_1K_INPUT` to your provider's input price to enable the money line). Lock-free, so it answers even mid-generation |
 | `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
 | `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 
@@ -589,6 +676,9 @@ for all knobs and comments). The defaults are sensible; the ones you might touch
 | `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
 | `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
 | `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
+| `WEBUI_ENABLED` | `true` | Serve the zero-install web UI at `/ui` (loopback only) |
+| `PREPARE_CMD` | — | Converter template for `prepare` on scanned/visual PDFs (`{in}`/`{out}` substituted as whole args, no shell) |
+| `CLOUD_PRICE_PER_1K_INPUT` | `0.0` | Your cloud provider's input $/1k tokens — enables the `/stats` savings line |
 | `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
 
 ## Under the hood
@@ -655,9 +745,10 @@ memory (Apple/Strix Halo) it's all one pool — which is why those machines are
 this architecture's natural home.
 
 **And it's observable, not asserted:** `python llamacag.py status` now prints
-live per-service CPU/RAM; llama-server's startup log states its exact
-weights/KV allocations (`python llamacag.py logs llama-server`); the nightly
-maintenance report tracks cache disk. Contrast with v1, which loaded the model
+live per-service CPU/RAM; `GET /stats` reports token reuse and an estimated
+cost-savings figure across three time windows; llama-server's startup log states
+its exact weights/KV allocations (`python llamacag.py logs llama-server`); the
+nightly maintenance report tracks cache disk. Contrast with v1, which loaded the model
 *and* whole pickled cache states inside the desktop app's own process — RAM
 pressure that grew with use and answered to nothing. v2's footprint is one
 predictable allocation in one container, tunable from `.env`, with documents
@@ -747,14 +838,18 @@ option instead of a science project.
 
 ## Roadmap
 
-Planned capabilities — each with a full implementation plan, from design to
-tests — live in **[docs/ROADMAP.md](docs/ROADMAP.md)**: the mechanical
-quote-grounding check that hardens the oracle, per-canon reliability scoring, an
-answer-gating pattern for support bots, structured-verdict scope fields,
-usage/cost observability, an optional PDF→Markdown preprocessor, and the larger
-deferred items (cross-document queries, multi-user). The plans are written so a
-contributor can pick one up and execute it without this context — or open an
-issue to discuss one first.
+The upgrades that make the **grounding oracle** honest and trustworthy have
+**already shipped** on this branch: the mechanical quote-grounding check
+([`POST /verify`](#the-api)), per-canon reliability
+[calibration](#know-your-canons-reliability), the
+[answer-gating pattern](#gating-a-support-bots-answers) for support bots,
+structured-verdict scope fields, usage & cost observability (`GET /stats`), an
+optional [PDF→Markdown preprocessor](#preparing-documents-pdfs-scans-tables), and
+the zero-install web UI. What remains is **deliberately deferred, design-first**
+work — cross-document queries (concat / diff / federate) and multi-user / RBAC.
+Full plans for everything, from design to tests, live in
+**[docs/ROADMAP.md](docs/ROADMAP.md)**, written so a contributor can pick one up
+without this context — or open an issue to discuss one first.
 
 ## Updating & maintenance
 
