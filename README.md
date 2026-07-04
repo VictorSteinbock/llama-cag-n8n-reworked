@@ -521,6 +521,22 @@ design doc, and any MCP-capable agent — coding or otherwise — gets a private
 grounded, queryable memory that never inflates its context and never leaves
 your machine.
 
+## Grounding autonomous agents (OpenClaw, Hermes, …)
+
+Agent runtimes that keep a **persistent, self-improving memory** — OpenClaw's
+`MEMORY.md`, Hermes Agent's episodic memory and skills — drift when a hallucinated
+fact is written to memory and then retrieved-and-reinforced on later turns. This
+stack is the fix: pin your source of truth as the canon and make `/verify` a
+**Write-Validation gate** — a candidate fact is checked *before* it enters memory,
+and contradicted / absent / fabricated-quote facts are quarantined instead of
+trusted. The canon lives in the KV cache, *outside* the agent's memory, so it
+can't be poisoned by the agent's own drift.
+
+Working code and per-framework recipes live in [`integrations/`](integrations/) —
+a tested, framework-agnostic `GroundingGate` plus a Hermes Agent plugin and an
+OpenClaw skill. The design, the drift mechanism (with sources), and the honest
+limits are in **[docs/AGENTS.md](docs/AGENTS.md)**.
+
 ## Running it as a dedicated chatbot
 
 The original motivation for this project — a narrow-domain support bot — is a
@@ -958,6 +974,7 @@ Honest answer: **almost none, and no code changes for new models.**
 ├── mcp/                    # cag-mcp: MCP server exposing the stack to Claude Code / agents
 │   ├── cag_mcp/            #   FastMCP app + tools (server.py) + cag-api client (client.py)
 │   └── tests/              #   tool tests over a MockTransport fake of cag-api
+├── integrations/           # grounding gate for agent loops: cag_gate core + Hermes plugin + OpenClaw skill
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
 ├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
 ├── n8n/workflows/          # 7 importable workflows: ingestion, query, maintenance, sweep, verify, calibrate, answer-gate
