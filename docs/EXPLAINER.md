@@ -34,11 +34,12 @@ only ever does the reading once.
 ## Who lives on your computer
 
 When you start the system, five characters wake up. Four live inside Docker
-(think: a tidy apartment building for programs), one is a normal desktop app:
+(think: a tidy apartment building for programs); the fifth is an optional screen
+you can open if you feel like it — a built-in web page, or a desktop app:
 
 ```mermaid
 flowchart LR
-    YOU(("🧑 You")) --> UI["🖥️ The Remote Control<br/>(LlamaCag UI — desktop app)"]
+    YOU(("🧑 You")) --> UI["🖥️ The Remote Control (optional)<br/>(a web page or a desktop app)"]
     YOU --> DROP[("📁 A folder you drop<br/>files into")]
     subgraph docker["🏢 The Docker building (all on your machine)"]
         N8N["🤖 The Assistant (n8n)<br/>watches the folder, answers the phone,<br/>tidies up at night"]
@@ -61,8 +62,13 @@ flowchart LR
   call, and runs a nightly cleanup.
 - **The Filing Cabinet** just keeps records — which documents exist, every
   question and answer.
-- **The Remote Control** is the friendly desktop app: chat with a document, see
-  what's stored, check that everything is healthy, switch the AI model.
+- **The Remote Control** is optional — a friendly screen for when you'd rather
+  click than type: chat with a document, see what's stored, check everything is
+  healthy, switch the AI model. It comes in two overlapping forms: a **built-in
+  web page** (open `localhost:8000/ui` in a browser — nothing to install) and a
+  separate **desktop app** (LlamaCag UI). You don't need either — you can just
+  drop files in the folder and ask through the Assistant — they're only windows
+  onto what's already happening.
 
 None of them ever talk to the internet while working. Your documents,
 questions, and answers never leave your machine.

@@ -262,10 +262,50 @@ something it must consult, and can be caught deviating from.
 
 The bundled verification workflow, as imported into n8n — seven of these ship in `n8n/workflows/`.
 
-## What it's actually like to run
+## What it's for, and what to expect — in plain words
 
-No mystery about where your things go or what this does to your computer. In
-plain words:
+If the sections above got technical, here is the whole thing again for a
+non-technical reader: what you'd use it for, whether you need the app, and what
+it does to your computer.
+
+**What people actually use it for.** A handful of everyday shapes:
+
+- **Ask a big document questions without reading it yourself** — point it at a
+  200-page manual, a contract, or a policy binder and ask *"does the warranty
+  cover water damage?"* You get the answer *and* the exact line it came from, in
+  seconds. Because it reads your real document, it can't invent a rule that isn't
+  there.
+- **A private help desk that knows your handbook** — give it your product manual
+  and it answers staff or customers from that manual and nothing else. Nothing
+  leaves your building, it never makes up policy, and each answer costs nothing.
+- **A memory for your AI coding assistant** — hand a tool like Claude Code one
+  giant spec, once; from then on it *looks things up* instead of re-reading the
+  whole spec every time, which saves money and keeps its attention on your code.
+- **An automation that checks facts** — a no-code n8n workflow can ask your
+  rulebook *"is this claim true?"* and get back yes / no **with the supporting
+  quote**. No programming, no separate database.
+
+The through-line, in one line: **you have one dense document (or a few) and you
+ask it many questions over time.** That's where it beats the cloud (this is
+private, and free per question) *and* ordinary search tools (it reads the *whole*
+document every time, not a few snippets it fished out).
+
+**Do you need the app or the web page? No — the screens are optional.** This is
+the part people find confusing, so plainly: the real product is the engine and
+its automation, and you can run *everything* by dropping files into a folder and
+calling a web address — without ever opening a screen. If you'd rather click
+around, there are **two optional windows**, and they deliberately overlap:
+
+- the **built-in web UI** — nothing to install, just open
+  **http://localhost:8000/ui** in any browser once the stack is running; and
+- the **[LlamaCag desktop app](https://github.com/VictorSteinbock/LlamaCagUI)** —
+  a separate, optional program you install like any other app.
+
+They are **not the same program**, but they do the same friendly things — chat
+with a document, see what's stored, check that everything is healthy. Both are
+just a **window onto what's happening under the hood**, not the point of the
+project; use whichever you like, or neither, and the engine works exactly the
+same.
 
 **Where everything lives — all on your machine.**
 
@@ -817,8 +857,8 @@ around it. Knowing your lane is the point.
 
 ## The family
 
-One engine (`llama-server` + the `cag-api` orchestrator), three faces on it —
-plus a desktop control room:
+One engine (`llama-server` + the `cag-api` orchestrator), four faces on it —
+plus an optional desktop control room:
 
 - **The API** (`cag-api`) — the typed HTTP surface. Everything programmatic
   lives here.
@@ -827,9 +867,15 @@ plus a desktop control room:
 - **The MCP server** (`cag-mcp`) — the stack as a local document-memory tool for
   Claude Code, Claude Desktop, and other agents (see
   [Use it from Claude Code](#use-it-from-claude-code-mcp)).
+- **The web UI** — a zero-install browser page served at `/ui` (chat, library,
+  verify, stats). A convenience view of the API; optional, local-only, nothing to
+  install.
 - **[LlamaCag UI](https://github.com/VictorSteinbock/LlamaCagUI)** — the desktop
-  control room: chat, documents, stack health, model switching. *(Being rebuilt
-  against this v2 API — check the repo for status.)*
+  counterpart to the web UI: chat, documents, stack health, model switching.
+  *(Being rebuilt against this v2 API — check the repo for status.)*
+
+The last two are just windows onto the engine — handy, but never required; the
+API and the n8n automation are the product.
 
 Ancestry: this is a ground-up rebuild of the original
 [AbelCoplet/llama-cag-n8N](https://github.com/AbelCoplet/llama-cag-n8N), which
