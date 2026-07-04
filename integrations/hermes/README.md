@@ -38,6 +38,7 @@ The decision logic lives in the unit-tested [`cag_gate`](../cag_gate) package;
    | `CAG_DOCUMENT_ID` | *(unset = most-recent)* | Which canon to check against |
    | `CAG_MEMORY_PATH` | `MEMORY.md` | Where verified facts are appended |
    | `CAG_MEMORY_QUARANTINE_PATH` | `MEMORY.quarantine.md` | Where rejected facts are diverted |
+   | `CAG_OVERRIDE_MEMORY` | *(unset = off)* | `1` = register the gate **as** the built-in `memory` tool (`override=True`) — hard enforcement |
 
 5. **Tell the agent to use it.** Add one line to your Hermes system prompt:
    > To remember a fact, call `cag_remember` (it verifies against the canon). Before
@@ -50,12 +51,14 @@ Hermes `pre_tool_call`/`post_tool_call` hooks are **observers** — their return
 value is ignored, so a hook cannot *veto* a write. That leaves two levels:
 
 - **Soft (default):** the agent is instructed to use `cag_remember`, and
-  `post_tool_call` flags any direct built-in memory write the canon contradicts.
-  Good hygiene; relies on the agent following instructions.
-- **Hard:** in `register()`, register `cag_remember` with `override=True` under the
-  built-in memory tool's name so *every* memory write is gated regardless of what
-  the model chooses. Match your Hermes version's memory-tool arg schema when you do
-  (there's a commented example in `cag_plugin.py`).
+  `post_tool_call` flags any direct built-in memory write the canon contradicts —
+  a **tripwire log**, not a gate: the built-in write has already persisted by the
+  time the hook sees it. Good hygiene; relies on the agent following instructions.
+- **Hard:** set `CAG_OVERRIDE_MEMORY=1` — the plugin registers the gate under the
+  built-in `memory` tool's name with `override=True`, so *every* memory write is
+  gated regardless of what the model chooses. This is the level at which the
+  write-validation story holds unconditionally; match your Hermes version's
+  memory-tool arg schema if it differs.
 
 ## What "gated" looks like
 

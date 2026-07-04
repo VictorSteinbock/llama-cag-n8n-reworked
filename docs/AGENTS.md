@@ -63,12 +63,18 @@ an action, and it **fails closed**:
 |---|---|---|
 | `supported`, quote is in the source | **allow** | **allow** |
 | `supported` but quote **not** in source (fabricated) | quarantine | block |
+| `supported` but quote too short/generic to be evidence | quarantine | escalate |
 | `contradicted` | quarantine | block |
 | `absent` (canon doesn't mention it) | quarantine, tag `unverified` | escalate to human |
 | oracle unreachable / unknown verdict | quarantine | escalate |
 
-Only `supported` **with a grounded quote** is ever trusted. `absent` is the honest
-weak spot — there is no passage to ground — so it is never auto-trusted as a fact.
+Only `supported` **with a grounded, non-trivial quote** is ever trusted. The
+byte-check proves *existence*, not sufficiency — a generic fragment ("is the")
+grounds in any document, and an empty quote isn't even checkable — so the gate's
+**evidence floor** (`Policy.min_grounded_quote_chars`, default 12 collapsed
+chars, zero-width padding stripped) refuses those as evidence. `absent` is the
+honest weak spot — there is no passage to ground — so it is never auto-trusted
+as a fact.
 
 ## Where it factors in — the plumbing
 
@@ -81,7 +87,7 @@ Hermes plugins register tools and hooks in a `register(ctx)` entry point. The
 |---|---|---|
 | `register_tool` | `cag_verify(claim)`, `cag_ask(question)` | Read-grounding |
 | `register_tool` | `cag_remember(fact)` — verify-then-store; quarantine the rest | **Consolidation (Write-Validation)** |
-| `register_tool(..., override=True)` | replace the built-in `memory` tool for *hard* enforcement | Consolidation |
+| `register_tool(..., override=True)` | `CAG_OVERRIDE_MEMORY=1` replaces the built-in `memory` tool for *hard* enforcement | Consolidation |
 | `register_hook("post_tool_call", …)` | reactive net: flag a direct memory write the canon contradicts | Consolidation |
 | `register_hook("pre_llm_call", …)` | inject a one-line grounding reminder each turn | Steering |
 
@@ -132,11 +138,14 @@ claiming *"rate limit is 1000 req/s"* (the spec says 100).
   check) but **cannot** harden `absent`. Fail-safe: auto-pass only `supported` +
   grounded; route the rest to a human or to quarantined memory.
 - **Conformance, not omniscience.** It enforces agreement with *the canon you
-  pinned*, not universal truth. A wrong canon → confident wrong grounding — so
-  `calibrate` it, and `prepare` visual PDFs into clean text first.
+  pinned*, not universal truth. A wrong — or hostile — canon → confident wrong
+  grounding (the model is *instructed to obey* the document, so a malicious
+  document can steer answers about itself). Ingest sources you trust,
+  `calibrate` them, and `prepare` visual PDFs into clean text first.
 - **Existence vs entailment.** The quote check is mechanical; whether the quote
   actually *entails* the claim is still the model's judgement at `temperature 0` —
-  reproducible, not infallible.
+  reproducible, not infallible. And existence alone is weak evidence for short
+  strings — hence the evidence floor above; it is a heuristic, not a proof.
 - **Cost.** Each gate is one local `temperature 0` call. Gate the *consequential*
   writes and actions, not every token.
 

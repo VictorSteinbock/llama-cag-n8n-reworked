@@ -10,8 +10,8 @@ Tools
     persisted. Grounded facts are appended to the memory file; contradicted,
     absent, or fabricated-quote facts are diverted to a quarantine file and NOT
     stored as verified. Instruct the agent (system prompt) to use this instead of
-    the built-in ``memory`` tool — or register it with ``override=True`` to
-    replace ``memory`` outright (see README).
+    the built-in ``memory`` tool — or set ``CAG_OVERRIDE_MEMORY=1`` to replace
+    the built-in ``memory`` tool outright (hard enforcement; see README).
 
 Hooks (observers — Hermes ignores their return value except ``pre_llm_call``)
   * ``post_tool_call`` — reactive safety net: if the agent used the *built-in*
@@ -176,9 +176,16 @@ def register(ctx):
     ctx.register_tool(
         name="cag_remember", toolset=TOOLSET, schema=_FACT_SCHEMA, handler=cag_remember_tool,
     )
-    # For hard enforcement, replace the built-in memory tool instead of adding a
-    # companion — uncomment and match your Hermes memory tool's arg schema:
-    #   ctx.register_tool(name="memory", toolset=TOOLSET, schema=_FACT_SCHEMA,
-    #                     handler=cag_remember_tool, override=True)
+    # Hard enforcement: CAG_OVERRIDE_MEMORY=1 replaces the built-in memory tool,
+    # so EVERY memory write goes through the gate. Without it the cag_* tools are
+    # companions the agent must be instructed to prefer, and the post_tool_call
+    # hook below is only a reactive tripwire — Hermes hooks are observers and
+    # cannot veto a write that already happened. (Match the schema to your
+    # Hermes version's memory tool if it differs.)
+    if os.environ.get("CAG_OVERRIDE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}:
+        ctx.register_tool(
+            name="memory", toolset=TOOLSET, schema=_FACT_SCHEMA,
+            handler=cag_remember_tool, override=True,
+        )
     ctx.register_hook("post_tool_call", _on_post_tool_call)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)

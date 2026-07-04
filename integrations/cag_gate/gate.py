@@ -22,6 +22,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
+# Zero-width characters an adversarial quote could pad itself with to look longer
+# than it is; stripped before the evidence-length check. Escapes, not literal
+# glyphs (same convention as api/app/grounding.py): U+200B/C/D + U+FEFF.
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))
+
+
+def _evidence_len(quote: str) -> int:
+    """Length of the quote once zero-width characters are stripped and whitespace
+    is collapsed — what the ``min_grounded_quote_chars`` floor measures."""
+    return len(" ".join(quote.translate(_ZERO_WIDTH).split()))
+
 
 class Action(str, Enum):
     """What the caller should do with a candidate fact/action."""
@@ -95,6 +106,14 @@ class Policy:
     # A "supported" verdict whose cited quote is NOT in the source (quote_grounded
     # is False) is a fabricated citation — caught mechanically, never trusted.
     require_grounded_quote: bool = True
+    # Evidence floor: the mechanical check proves the quote's EXISTENCE, not its
+    # sufficiency — a generic fragment ("is the") occurs in any document and
+    # grounds trivially, and a "supported" verdict with an EMPTY quote has
+    # quote_grounded None (not False) so it would slip past the fabricated-quote
+    # check entirely. A supported quote shorter than this (zero-widths stripped,
+    # whitespace collapsed) is therefore never treated as evidence: the write is
+    # quarantined / the action escalated. Heuristic, not proof — 0 disables.
+    min_grounded_quote_chars: int = 12
 
     @classmethod
     def strict(cls) -> "Policy":
@@ -139,6 +158,20 @@ class GroundingGate:
                     "(fabricated citation)",
                     v,
                     tag="fabricated-quote",
+                )
+            if (
+                self.policy.require_grounded_quote
+                and self.policy.min_grounded_quote_chars > 0
+                and _evidence_len(v.quote) < self.policy.min_grounded_quote_chars
+            ):
+                act = Action.ESCALATE if is_action else Action.QUARANTINE
+                return Decision(
+                    act,
+                    "verdict is 'supported' but the cited quote is too short/generic "
+                    f"to count as evidence ({_evidence_len(v.quote)} chars < "
+                    f"min_grounded_quote_chars={self.policy.min_grounded_quote_chars})",
+                    v,
+                    tag="quote-too-generic",
                 )
             reason = "supported by the canon"
             if v.quote:

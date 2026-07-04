@@ -10,7 +10,7 @@ Exit:   0 = trusted (supported by the canon, with a grounded quote)
 This is a standalone port of cag_gate.GroundingGate (the unit-tested reference in
 the llama-cag-n8n repo) so the skill can ship on ClawHub with no extra installs.
 It is deliberately conservative: anything that is not 'supported' with a grounded
-quote comes back trusted=false.
+quote of meaningful length comes back trusted=false.
 """
 
 import argparse
@@ -18,6 +18,17 @@ import json
 import os
 import sys
 import urllib.request
+
+# Existence is not sufficiency: a generic fragment ("is the") occurs in any
+# document and grounds trivially, and an empty quote has quote_grounded null.
+# A supported quote shorter than this — zero-width chars (U+200B/C/D, U+FEFF)
+# stripped, whitespace collapsed — is never treated as evidence.
+MIN_QUOTE_CHARS = 12
+_ZERO_WIDTH = dict.fromkeys((0x200B, 0x200C, 0x200D, 0xFEFF))
+
+
+def _evidence_len(quote):
+    return len(" ".join((quote or "").translate(_ZERO_WIDTH).split()))
 
 
 def verify(claim, document_id, base_url, timeout=60.0):
@@ -41,6 +52,8 @@ def decide(data):
     grounded = data.get("quote_grounded")
     if verdict == "supported" and grounded is False:
         return "block", "supported but the cited quote is not in the source (fabricated citation)"
+    if verdict == "supported" and _evidence_len(quote) < MIN_QUOTE_CHARS:
+        return "escalate", "supported but the cited quote is too short/generic to count as evidence"
     if verdict == "supported":
         return "allow", "supported by the canon" + (f': "{quote}"' if quote else "")
     if verdict == "contradicted":

@@ -43,9 +43,14 @@ adapter, or call `POST /verify` directly from any other runtime.
 |---|---|---|
 | `supported` + quote in source | **allow** | **allow** |
 | `supported` but quote fabricated | quarantine | block |
+| `supported` but quote too short/generic to be evidence | quarantine | escalate |
 | `contradicted` | quarantine | block |
 | `absent` (not in canon) | quarantine (tag unverified) | escalate to human |
 | oracle unreachable / unknown | quarantine | escalate |
 
-Only `supported` with a **grounded** quote is ever trusted. Everything else is
-kept out of "verified" memory or routed to a human — fail closed.
+Only `supported` with a **grounded, non-trivial** quote is ever trusted — the
+byte-check proves a quote's *existence*, not its sufficiency, so quotes under
+the evidence floor (`Policy.min_grounded_quote_chars`, default 12 collapsed
+chars; a generic "is the" grounds in any document) are never counted as
+evidence. Everything else is kept out of "verified" memory or routed to a
+human — fail closed.

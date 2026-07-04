@@ -161,7 +161,11 @@ of truth *before it ships*. The verdict is machine-readable — a claim in, a
 `{claim, verdict, quote, conditions, quote_grounded}` object out — and
 [`POST /verify`](#the-api) goes one step further: it **mechanically** confirms the
 returned quote actually occurs in the source bytes and reports `quote_grounded`,
-so a fabricated citation is caught with **zero** extra model calls. The bundled
+so an *invented* citation — text that never occurs in the source — is caught with
+**zero** extra model calls. (Existence, not sufficiency: a generic real fragment
+still passes the byte-check, which is why the bundled
+[agent gate](docs/AGENTS.md#the-fail-safe-policy) also refuses quotes too short
+to count as evidence.) The bundled
 **claim-verification workflow** batch-verifies a whole list that way in one
 call — each claim checked at `temperature 0` against the pinned document, one
 bad claim captured without aborting the rest:
@@ -188,8 +192,13 @@ automatically (`quote_grounded: false`), no extra model call. But grounding is
 **asymmetric**: it hardens `supported`/`contradicted` (there is a passage to
 check) but **cannot** harden `absent` (`quote_grounded: null`), and it verifies
 the quote's *existence*, not the claim's *entailment* — the model can still
-misread real evidence. Treat it as a **fail-safe gate**: auto-pass only on
-`supported` with a grounded quote; route `absent` and `contradicted` to review.
+misread real evidence, and a three-word generic fragment grounds trivially (the
+agent gate's evidence floor exists for exactly that). Treat it as a **fail-safe
+gate**: auto-pass only on `supported` with a grounded, non-trivial quote; route
+`absent` and `contradicted` to review. And one boundary named plainly: **the
+canon itself is trusted input** — the whole design instructs the model to obey
+the document, so a hostile document can steer answers about itself. Ingest
+sources you trust.
 And you don't have to guess how reliable the oracle is on a given document —
 **calibrate** it (below).
 

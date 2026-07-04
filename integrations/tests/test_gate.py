@@ -109,6 +109,57 @@ def test_unknown_verdict_fails_closed():
     assert gate.gate_action("x").action is Action.ESCALATE
 
 
+# --- the evidence floor: existence is not sufficiency -------------------------
+
+def v_generic_quote(claim, document_id=None):
+    # External-audit scenario: a false claim "supported" by a fragment so generic
+    # it exists in ANY document — the byte-check grounds it (exact, 1.0), so only
+    # the evidence floor stands between this and an auto-pass.
+    return {
+        "verdict": "supported",
+        "quote": "is the",
+        "quote_grounded": True,
+        "match_ratio": 1.0,
+        "grounding_method": "exact",
+    }
+
+
+def test_generic_grounded_quote_is_not_evidence():
+    gate = GroundingGate(verify=v_generic_quote)
+    mem = gate.gate_memory_write("The rate limit is 10,000 req/s")
+    assert mem.action is Action.QUARANTINE and mem.tag == "quote-too-generic"
+    assert mem.trusted is False
+    assert gate.gate_action("The rate limit is 10,000 req/s").action is Action.ESCALATE
+
+
+def test_supported_with_empty_quote_is_not_trusted():
+    # Empty quote -> grounding() reports quote_grounded None (not False), so the
+    # fabricated-quote branch never fires — the floor must close this hole.
+    gate = GroundingGate(
+        verify=lambda c, document_id=None: {
+            "verdict": "supported", "quote": "", "quote_grounded": None,
+        }
+    )
+    d = gate.gate_memory_write("anything")
+    assert d.action is Action.QUARANTINE and d.tag == "quote-too-generic"
+    assert d.trusted is False
+
+
+def test_zero_width_padding_does_not_beat_the_floor():
+    padded = "i\u200bs\u200b \u200b\u200bt\u200bh\u200be\ufeff\ufeff"
+    gate = GroundingGate(
+        verify=lambda c, document_id=None: {
+            "verdict": "supported", "quote": padded, "quote_grounded": True,
+        }
+    )
+    assert gate.gate_memory_write("x").tag == "quote-too-generic"
+
+
+def test_evidence_floor_can_be_disabled():
+    gate = GroundingGate(verify=v_generic_quote, policy=Policy(min_grounded_quote_chars=0))
+    assert gate.gate_memory_write("x").action is Action.ALLOW
+
+
 def test_document_id_is_forwarded():
     seen = {}
 
