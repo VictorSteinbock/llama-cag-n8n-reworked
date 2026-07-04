@@ -1,5 +1,5 @@
 <svg width="1600" height="1000" viewBox="0 0 1600 1000" xmlns="http://www.w3.org/2000/svg" role="img">
-  <title>llama-cag-n8n pitch deck, page 1 of 3: the whole idea as a four-step chain — your document, read once and remembered on disk, ask anytime, an answer you can check — plus three conceptual ways to use it.</title>
+  <title>llama-cag-n8n pitch deck, page 1 of 3: the whole idea as a four-step chain (your document, read once and remembered on disk, ask anytime, an answer you can check) plus three conceptual ways to use it.</title>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#6B766E"/>
@@ -27,7 +27,7 @@
   <text class="mono green" x="84" y="150" font-size="14" letter-spacing="3.4" font-weight="600">THE IDEA, IN PLAIN WORDS</text>
   <text class="sans ink" x="82" y="222" font-size="58" font-weight="700" letter-spacing="-0.5">Read once. Ask forever.</text>
   <text class="sans soft" x="84" y="266" font-size="20">A small self-hosted stack that reads a document one time, keeps its memory of it on disk,</text>
-  <text class="sans soft" x="84" y="296" font-size="20">and answers questions from it — in a way you can check. Nothing leaves your machine.</text>
+  <text class="sans soft" x="84" y="296" font-size="20">and answers questions from it, in a way you can check. Nothing leaves your machine.</text>
 
   <!-- the chain -->
   <text class="mono muted" x="84" y="352" font-size="13" letter-spacing="2.6">THE WHOLE IDEA, ONE PICTURE</text>
@@ -36,7 +36,7 @@
     <rect class="card" x="84" y="372" width="330" height="150" rx="10"/>
     <text class="mono green" x="108" y="404" font-size="12.5" letter-spacing="1.8" font-weight="600">STEP 1</text>
     <text class="sans ink" x="108" y="432" font-size="18" font-weight="700">Your document</text>
-    <text class="sans muted" x="108" y="458" font-size="13.5">a manual · a spec · a rulebook —</text>
+    <text class="sans muted" x="108" y="458" font-size="13.5">a manual, a spec, a rulebook,</text>
     <text class="sans muted" x="108" y="478" font-size="13.5">something you keep coming back to</text>
   </g>
   <line class="flow" x1="422" y1="447" x2="443" y2="447" marker-end="url(#ah)"/>
@@ -45,7 +45,7 @@
     <text class="mono green" x="475" y="404" font-size="12.5" letter-spacing="1.8" font-weight="600">STEP 2</text>
     <text class="sans ink" x="475" y="432" font-size="18" font-weight="700">Read once, remembered</text>
     <text class="sans muted" x="475" y="458" font-size="13.5">the model's memory of it is saved</text>
-    <text class="sans muted" x="475" y="478" font-size="13.5">on your disk — it survives reboots</text>
+    <text class="sans muted" x="475" y="478" font-size="13.5">on your disk. It survives reboots</text>
   </g>
   <line class="flow" x1="789" y1="447" x2="810" y2="447" marker-end="url(#ah)"/>
   <g>
@@ -60,15 +60,15 @@
     <rect class="card" x="1185" y="372" width="330" height="150" rx="10"/>
     <text class="mono green" x="1209" y="404" font-size="12.5" letter-spacing="1.8" font-weight="600">STEP 4</text>
     <text class="sans ink" x="1209" y="432" font-size="18" font-weight="700">An answer you can check</text>
-    <text class="sans muted" x="1209" y="458" font-size="13.5">ask for the exact passage — the</text>
+    <text class="sans muted" x="1209" y="458" font-size="13.5">ask for the exact passage and the</text>
     <text class="sans muted" x="1209" y="478" font-size="13.5">system confirms it's really there</text>
   </g>
 
   <text class="sans muted" x="84" y="560" font-size="15.5" font-style="italic">For contrast, the usual way: the model re-reads the entire document for every single question.</text>
-  <text class="sans muted" x="84" y="584" font-size="15.5" font-style="italic">Here, the reading happens once — the first time — and then never again.</text>
+  <text class="sans muted" x="84" y="584" font-size="15.5" font-style="italic">Here, the reading happens once, the first time, and then never again.</text>
 
   <!-- three conceptual uses -->
-  <text class="mono muted" x="84" y="642" font-size="13" letter-spacing="2.6">WAYS I THINK IT COULD BE USED — WHAT I BUILT IT FOR</text>
+  <text class="mono muted" x="84" y="642" font-size="13" letter-spacing="2.6">WAYS I THINK IT COULD BE USED · WHAT I BUILT IT FOR</text>
 
   <g>
     <rect class="card" x="84" y="662" width="452" height="264" rx="10"/>
@@ -77,7 +77,7 @@
     <text class="sans soft" x="128" y="739" font-size="14">your coding agent hits a spec question</text>
     <text class="sans muted" x="310" y="776" font-size="15" text-anchor="middle">↓</text>
     <rect class="chip" x="112" y="784" width="396" height="40" rx="8"/>
-    <text class="sans soft" x="128" y="809" font-size="14">it asks the local stack — one tool call</text>
+    <text class="sans soft" x="128" y="809" font-size="14">it asks the local stack, one tool call</text>
     <text class="sans muted" x="310" y="846" font-size="15" text-anchor="middle">↓</text>
     <rect class="chip" x="112" y="854" width="396" height="40" rx="8"/>
     <text class="sans soft" x="128" y="879" font-size="14">a short answer + quote comes back</text>
@@ -88,13 +88,13 @@
     <rect class="card" x="574" y="662" width="452" height="264" rx="10"/>
     <text class="sans ink" x="602" y="698" font-size="18" font-weight="700">A fact-checker for other agents</text>
     <rect class="chip" x="602" y="714" width="396" height="40" rx="8"/>
-    <text class="sans soft" x="618" y="739" font-size="14">an agent — say Hermes — wants to save a "fact"</text>
+    <text class="sans soft" x="618" y="739" font-size="14">an agent, say Hermes, wants to save a "fact"</text>
     <text class="sans muted" x="800" y="776" font-size="15" text-anchor="middle">↓</text>
     <rect class="chip" x="602" y="784" width="396" height="40" rx="8"/>
     <text class="sans soft" x="618" y="809" font-size="14">the gate checks it against your document</text>
     <text class="sans muted" x="800" y="846" font-size="15" text-anchor="middle">↓</text>
     <rect class="chip" x="602" y="854" width="396" height="40" rx="8"/>
-    <text class="sans soft" x="618" y="879" font-size="14">it's kept — or kept out</text>
+    <text class="sans soft" x="618" y="879" font-size="14">it's kept, or kept out</text>
     <text class="sans muted" x="602" y="916" font-size="13.5">Why: checked memories don't snowball into nonsense.</text>
   </g>
 
@@ -108,7 +108,7 @@
     <text class="sans soft" x="1108" y="809" font-size="14">ask it in a browser, a chat, or by API</text>
     <text class="sans muted" x="1290" y="846" font-size="15" text-anchor="middle">↓</text>
     <rect class="chip" x="1092" y="854" width="396" height="40" rx="8"/>
-    <text class="sans soft" x="1108" y="879" font-size="14">a grounded answer — nothing leaves home</text>
+    <text class="sans soft" x="1108" y="879" font-size="14">a grounded answer, nothing leaves home</text>
     <text class="sans muted" x="1092" y="916" font-size="13.5">Why: asking beats re-reading, and it stays private.</text>
   </g>
 
