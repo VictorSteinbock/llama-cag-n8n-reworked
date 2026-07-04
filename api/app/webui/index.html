@@ -1,0 +1,510 @@
+<!--
+  cag-api web UI — a zero-install, self-contained SPA served at /ui.
+
+  SECURITY BOUNDARY: the stack is UNAUTHENTICATED by design; loopback is the
+  security boundary. This UI is for the LOCAL HOST. Reaching it from another
+  machine means binding the API port beyond 127.0.0.1, which exposes an
+  unauthenticated document store + inference endpoint on your network — only do
+  that behind a reverse proxy with auth, or on a trusted LAN you control.
+  General multi-user access is the F8 fork, not this feature.
+
+  No external resources (no CDN, font, or image URLs): CSP-clean and offline.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cag-api · web UI</title>
+<style>
+  :root {
+    --bg: #0F172A; --panel: #1E293B; --border: #334155; --text: #E2E8F0;
+    --muted: #94A3B8; --amber: #F59E0B; --cyan: #22D3EE; --green: #34D399; --red: #F87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header .brand { font-weight: 600; color: var(--amber); letter-spacing: .02em; }
+  nav { display: flex; gap: 4px; margin-left: auto; }
+  nav button {
+    background: transparent; color: var(--muted); border: 1px solid transparent;
+    padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--bg); background: var(--amber); font-weight: 600; }
+  main { max-width: 980px; margin: 0 auto; padding: 22px 20px 60px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; margin-bottom: 16px;
+  }
+  h2 { margin: 0 0 12px; font-size: 18px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  select, input[type=text], textarea {
+    width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+    font: inherit;
+  }
+  textarea { min-height: 92px; resize: vertical; }
+  button.act {
+    background: var(--amber); color: var(--bg); border: 0; border-radius: 8px;
+    padding: 9px 18px; font-weight: 600; cursor: pointer;
+  }
+  button.act:disabled { opacity: .5; cursor: default; }
+  button.ghost {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .grow { flex: 1; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { color: var(--muted); font-weight: 500; }
+  .chip {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; border: 1px solid var(--border);
+  }
+  .chip.memory, .chip.hot, .chip.supported, .chip.yes { color: var(--cyan); border-color: var(--cyan); }
+  .chip.disk { color: var(--amber); border-color: var(--amber); }
+  .chip.recomputed, .chip.contradicted, .chip.no { color: var(--red); border-color: var(--red); }
+  .chip.cold, .chip.absent, .chip.na { color: var(--muted); }
+  .chip.green, .chip.cached { color: var(--green); border-color: var(--green); }
+  .chip.error { color: var(--amber); border-color: var(--amber); }
+  .receipt { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .qa { margin: 10px 0; padding: 10px 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+  .qa .q { color: var(--muted); font-size: 13px; }
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 10px; padding: 20px;
+    text-align: center; color: var(--muted); cursor: pointer;
+  }
+  .drop.over { border-color: var(--amber); color: var(--text); }
+  .banner { color: var(--amber); font-size: 13px; margin-top: 8px; }
+  .empty { text-align: center; color: var(--muted); padding: 30px 10px; }
+  #toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--red); color: var(--bg); padding: 10px 16px; border-radius: 8px;
+    font-size: 14px; font-weight: 600; display: none; max-width: 90%;
+  }
+  .spinner {
+    display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border);
+    border-top-color: var(--amber); border-radius: 50%; animation: spin .8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .muted { color: var(--muted); }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+</style>
+
+<header>
+  <span class="brand">cag-api · web UI</span>
+  <nav id="tabs">
+    <button data-tab="chat" class="active">Chat</button>
+    <button data-tab="library">Library</button>
+    <button data-tab="verify">Verify</button>
+    <button data-tab="stats">Stats</button>
+  </nav>
+</header>
+
+<main id="view"><div class="panel"><span class="spinner"></span> loading…</div></main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var state = { tab: "chat", docs: [], hot: {}, activeDocId: null, history: [] };
+
+  // Curated samples for the empty-state first-run. The browser can't read the
+  // server's samples/ folder, so the text is embedded here; samples/*.md on disk
+  // are the source of truth (README + tests reference them).
+  var SAMPLES = {
+    manual: {
+      file_name: "acme-widget-manual.md",
+      question: "How long does the battery last?",
+      text: [
+        "# ACME Widget Pro — Owner's Manual",
+        "",
+        "## Battery and power",
+        "The battery lasts 18 hours on a full charge. A full charge takes 90 minutes",
+        "from empty. The Widget charges over USB-C only; wireless charging is not supported.",
+        "",
+        "## Operating conditions",
+        "Operating temperature range: 0 °C to 40 °C. Do not operate the Widget above",
+        "40 °C. Thermal shutdown triggers at 55 °C to protect the cell.",
+        "",
+        "## Warranty",
+        "The warranty period is 24 months from the date of purchase. The warranty covers",
+        "manufacturing defects only; it does not cover water damage or accidental drops.",
+        "",
+        "## Firmware",
+        "Firmware updates are delivered over Wi-Fi only; USB updates are not supported."
+      ].join("\n")
+    },
+    policy: {
+      file_name: "refund-policy.md",
+      question: "Can I get a refund if I changed my mind?",
+      hint: "Now switch to Verify and paste: “Widgets are refundable within 30 days” to see the oracle catch the condition.",
+      text: [
+        "# ACME Refund Policy",
+        "",
+        "## Eligibility",
+        "A widget is refundable only if it is defective and returned within 30 days of",
+        "delivery. Change-of-mind returns are not eligible for a refund.",
+        "",
+        "## Processing",
+        "Refunds are processed within 5 business days of the returned item being received.",
+        "",
+        "## Charges",
+        "Shipping charges are non-refundable."
+      ].join("\n")
+    }
+  };
+
+  // --- same-origin API wrapper (relative URLs => no CORS, no base to configure) ---
+  async function api(path, opts) {
+    opts = opts || {};
+    var init = Object.assign({}, opts);
+    if (typeof init.body === "string") {
+      init.headers = Object.assign({ "Content-Type": "application/json" }, init.headers || {});
+    }
+    var res = await fetch(path, init);
+    var data = null;
+    try { data = await res.json(); } catch (e) { /* empty/non-json body */ }
+    if (!res.ok) {
+      throw new Error(data && data.detail ? data.detail : res.status + " " + res.statusText);
+    }
+    return data;
+  }
+
+  function toast(err) {
+    var t = document.getElementById("toast");
+    t.textContent = String(err && err.message ? err.message : err);
+    t.style.display = "block";
+    setTimeout(function () { t.style.display = "none"; }, 5000);
+  }
+
+  var el = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  // --- data loads ---------------------------------------------------------
+  async function loadDocs() {
+    var body = await api("/documents");
+    state.docs = (body && body.documents) || [];
+  }
+  async function loadHealth() {
+    try {
+      var res = await fetch("/health");
+      var h = await res.json();
+      state.hot = (h && h.hot_documents) || {};
+      return h;
+    } catch (e) { state.hot = {}; return null; }
+  }
+  function hotIds() {
+    var ids = {};
+    Object.keys(state.hot).forEach(function (slot) { ids[state.hot[slot]] = true; });
+    return ids;
+  }
+  function residency(doc, ids) {
+    if (ids[doc.id]) return "hot";
+    if (doc.cache_file) return "disk";
+    return "cold";
+  }
+  function cachedDocs() {
+    return state.docs.filter(function (d) { return d.status === "cached"; });
+  }
+
+  // --- tab: Chat ----------------------------------------------------------
+  function renderChat() {
+    var docs = cachedDocs();
+    if (!docs.length) return emptyState();
+    if (state.activeDocId == null) state.activeDocId = docs[0].id;
+    var options = docs.map(function (d) {
+      var sel = d.id === state.activeDocId ? " selected" : "";
+      return '<option value="' + d.id + '"' + sel + ">" + esc(d.file_name) + "</option>";
+    }).join("");
+    el("view").innerHTML =
+      '<div class="panel">' +
+        '<label>Document</label>' +
+        '<select id="chatDoc">' + options + "</select>" +
+      "</div>" +
+      '<div class="panel"><div id="transcript"></div>' +
+        '<div class="row" style="margin-top:12px">' +
+          '<input class="grow" id="chatInput" type="text" placeholder="Ask this document…">' +
+          '<button class="act" id="chatSend">Send</button>' +
+        "</div>" +
+      "</div>";
+    renderTranscript();
+    el("chatDoc").onchange = function () {
+      state.activeDocId = parseInt(this.value, 10);
+      state.history = [];
+      renderTranscript();
+    };
+    el("chatSend").onclick = sendChat;
+    el("chatInput").onkeydown = function (e) { if (e.key === "Enter") sendChat(); };
+  }
+  function renderTranscript() {
+    var t = el("transcript");
+    if (!t) return;
+    if (!state.history.length) { t.innerHTML = '<div class="muted">No messages yet.</div>'; return; }
+    t.innerHTML = state.history.map(function (turn) {
+      if (turn.role === "user") return '<div class="qa"><div class="q">you</div>' + esc(turn.content) + "</div>";
+      return '<div class="qa"><div class="q">answer</div>' + esc(turn.content) +
+        (turn.receipt || "") + "</div>";
+    }).join("");
+  }
+  async function sendChat() {
+    var input = el("chatInput");
+    var q = input.value.trim();
+    if (!q) return;
+    input.value = "";
+    state.history.push({ role: "user", content: q });
+    renderTranscript();
+    el("chatSend").disabled = true;
+    try {
+      var res = await api("/query", { method: "POST", body: JSON.stringify({
+        question: q, document_id: state.activeDocId, history: state.history.slice(0, -1)
+      }) });
+      var t = res.timings || {};
+      var chip = '<span class="chip ' + esc(t.cache_source) + '">' +
+        ({ memory: "from memory", disk: "from disk", recomputed: "recomputed" }[t.cache_source] || esc(t.cache_source)) +
+        "</span>";
+      var receipt = '<div class="receipt">' + chip +
+        " · evaluated " + (t.prompt_tokens_evaluated != null ? t.prompt_tokens_evaluated : "?") +
+        " · from cache " + (t.prompt_tokens_from_cache != null ? t.prompt_tokens_from_cache : "?") +
+        " · answer " + (t.answer_tokens != null ? t.answer_tokens : "?") +
+        " · " + (res.duration_ms != null ? res.duration_ms : "?") + " ms" +
+        (t.history_trimmed ? " · trimmed " + t.history_trimmed + " old turn(s)" : "") + "</div>";
+      state.history.push({ role: "assistant", content: res.answer, receipt: receipt });
+    } catch (e) {
+      toast(e);
+      // Drop the failed user turn so a failed exchange never gets replayed into
+      // the prompt as history on the next query (no synthetic turn pollutes it).
+      if (state.history.length && state.history[state.history.length - 1].role === "user") {
+        state.history.pop();
+      }
+    } finally {
+      el("chatSend").disabled = false;
+      renderTranscript();
+    }
+  }
+
+  // --- tab: Library -------------------------------------------------------
+  function renderLibrary() {
+    el("view").innerHTML =
+      '<div class="panel">' +
+        '<div class="row"><label class="grow">Add a document</label>' +
+          '<button class="ghost" id="pickBtn">Choose file…</button>' +
+          '<input id="fileInput" type="file" style="display:none">' +
+        "</div>" +
+        '<div class="drop" id="drop">Drag &amp; drop a .txt / .md / .html / text-PDF here</div>' +
+        '<div class="banner" id="upBanner" style="display:none"></div>' +
+      "</div>" +
+      '<div class="panel"><h2>Documents</h2><div id="docTable"></div></div>';
+    renderDocTable();
+    var fi = el("fileInput");
+    el("pickBtn").onclick = function () { fi.click(); };
+    fi.onchange = function () { if (fi.files[0]) upload(fi.files[0]); };
+    var drop = el("drop");
+    drop.ondragover = function (e) { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = function () { drop.classList.remove("over"); };
+    drop.ondrop = function (e) {
+      e.preventDefault(); drop.classList.remove("over");
+      if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]);
+    };
+  }
+  function renderDocTable() {
+    var box = el("docTable");
+    if (!box) return;
+    if (!state.docs.length) { box.innerHTML = '<div class="muted">Nothing ingested yet.</div>'; return; }
+    var ids = hotIds();
+    var rows = state.docs.map(function (d) {
+      var res = residency(d, ids);
+      var status = '<span class="chip ' + esc(d.status) + '">' + esc(d.status) + "</span>";
+      var resChip = '<span class="chip ' + res + '">' + res[0].toUpperCase() + res.slice(1) + "</span>";
+      return "<tr><td>" + d.id + "</td><td>" + esc(d.file_name) + "</td><td>" +
+        (d.n_tokens != null ? d.n_tokens : "—") + "</td><td>" + status + "</td><td>" + resChip +
+        '</td><td><button class="ghost" data-del="' + d.id + '">Delete</button></td></tr>';
+    }).join("");
+    box.innerHTML = "<table><thead><tr><th>id</th><th>name</th><th>tokens</th>" +
+      "<th>status</th><th>residency</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    Array.prototype.forEach.call(box.querySelectorAll("[data-del]"), function (b) {
+      b.onclick = function () { del(parseInt(b.getAttribute("data-del"), 10)); };
+    });
+  }
+  async function upload(file) {
+    var banner = el("upBanner");
+    banner.style.display = "block";
+    banner.innerHTML = '<span class="spinner"></span> uploading… warming (a large document can take minutes)…';
+    var fd = new FormData();
+    fd.append("file", file);
+    var poll = setInterval(function () { loadDocs().then(loadHealth).then(renderDocTable); }, 2000);
+    try {
+      await api("/documents", { method: "POST", body: fd });
+    } catch (e) {
+      toast(e);
+    } finally {
+      clearInterval(poll);
+      banner.style.display = "none";
+      await loadDocs(); await loadHealth(); renderDocTable();
+    }
+  }
+  async function del(id) {
+    try { await api("/documents/" + id, { method: "DELETE" }); }
+    catch (e) { toast(e); }
+    if (state.activeDocId === id) state.activeDocId = null;
+    await loadDocs(); await loadHealth(); renderDocTable();
+  }
+
+  // --- tab: Verify --------------------------------------------------------
+  function renderVerify() {
+    var docs = cachedDocs();
+    if (!docs.length) return emptyState();
+    if (state.activeDocId == null) state.activeDocId = docs[0].id;
+    var options = docs.map(function (d) {
+      var sel = d.id === state.activeDocId ? " selected" : "";
+      return '<option value="' + d.id + '"' + sel + ">" + esc(d.file_name) + "</option>";
+    }).join("");
+    el("view").innerHTML =
+      '<div class="panel">' +
+        '<label>Document</label><select id="vDoc">' + options + "</select>" +
+        '<label style="margin-top:12px">Claims (one per line)</label>' +
+        '<textarea id="vClaims" placeholder="Widgets are refundable within 30 days."></textarea>' +
+        '<div class="row" style="margin-top:10px"><button class="act" id="vRun">Verify</button>' +
+          '<span class="muted">Each claim is checked against the source; the quote is grounded mechanically.</span>' +
+        "</div>" +
+      "</div>" +
+      '<div class="panel"><h2>Verdicts</h2><div id="vResults"><div class="muted">No claims checked yet.</div></div></div>';
+    el("vDoc").onchange = function () { state.activeDocId = parseInt(this.value, 10); };
+    el("vRun").onclick = runVerify;
+  }
+  async function runVerify() {
+    var claims = el("vClaims").value.split("\n").map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length; });
+    if (!claims.length) return;
+    el("vRun").disabled = true;
+    var results = el("vResults");
+    results.innerHTML = "<table><thead><tr><th>claim</th><th>verdict</th><th>grounded</th>" +
+      "<th>quote</th><th>conditions</th></tr></thead><tbody id='vBody'></tbody></table>";
+    var body = el("vBody");
+    for (var i = 0; i < claims.length; i++) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + esc(claims[i]) + '</td><td colspan="4"><span class="spinner"></span></td>';
+      body.appendChild(tr);
+      try {
+        // Call /verify directly — the SPA is served by the process that owns it.
+        var v = await api("/verify", { method: "POST", body: JSON.stringify({
+          claim: claims[i], document_id: state.activeDocId
+        }) });
+        tr.innerHTML = verdictRow(v);
+      } catch (e) {
+        tr.innerHTML = "<td>" + esc(claims[i]) + '</td><td><span class="chip error">error</span></td>' +
+          '<td colspan="3" class="muted">' + esc(e.message) + "</td>";
+      }
+    }
+    el("vRun").disabled = false;
+  }
+  function verdictRow(v) {
+    var g = v.quote_grounded === true ? '<span class="chip yes">✓ yes</span>'
+      : v.quote_grounded === false ? '<span class="chip no">✗ no</span>'
+      : '<span class="chip na">n/a</span>';
+    return "<td>" + esc(v.claim) + '</td><td><span class="chip ' + esc(v.verdict) + '">' +
+      esc(v.verdict) + "</span></td><td>" + g + "</td><td>" + esc(v.quote || "—") +
+      "</td><td>" + (v.conditions ? esc(v.conditions) : "—") + "</td>";
+  }
+
+  // --- tab: Stats ---------------------------------------------------------
+  async function renderStats() {
+    el("view").innerHTML = '<div class="panel"><span class="spinner"></span> reading health…</div>';
+    var h = await loadHealth();
+    var docsById = {};
+    state.docs.forEach(function (d) { docsById[d.id] = d; });
+    var slotLines = Object.keys(state.hot).map(function (slot) {
+      var id = state.hot[slot];
+      var d = docsById[id];
+      return "slot " + slot + " → doc " + id + (d ? " (" + esc(d.file_name) + ")" : "");
+    }).join("<br>") || '<span class="muted">no documents resident in RAM</span>';
+    var statusChip = h ? '<span class="chip ' + (h.status === "ok" ? "green" : "error") + '">' +
+      esc(h.status) + "</span>" : '<span class="chip error">unreachable</span>';
+    var html = '<div class="panel"><h2>Residency</h2><div>status ' + statusChip +
+      " · slots " + (h ? h.slots : "?") + "</div><div style='margin-top:10px'>" + slotLines + "</div></div>";
+    el("view").innerHTML = html + '<div class="panel" id="savings"><span class="muted">reading usage…</span></div>';
+    // Progressive: /stats may not exist on an older server — omit the section silently.
+    try {
+      var s = await api("/stats");
+      var all = s.windows.all, day = s.windows["24h"], sv = s.savings;
+      var money = sv.estimated_usd != null ? " · ~$" + sv.estimated_usd + " saved" : "";
+      el("savings").innerHTML = "<h2>Compute saved</h2><div>" +
+        all.tokens_reused.toLocaleString() + " tokens served from cache all-time" + money + "</div>" +
+        '<div class="receipt">' + day.queries + " queries/24h · reuse ratio " + all.reuse_ratio +
+        " · p50 " + all.p50_duration_ms + " ms · p95 " + all.p95_duration_ms + " ms</div>";
+    } catch (e) {
+      var sv = el("savings"); if (sv) sv.remove();
+    }
+  }
+
+  // --- empty state: guided first-run (F10) --------------------------------
+  function emptyState() {
+    el("view").innerHTML =
+      '<div class="panel empty"><div id="emptyState">' +
+        "<p>Nothing ingested yet — <b>try a sample</b> to see it remember.</p>" +
+        '<div class="row" style="justify-content:center; gap:10px; flex-wrap:wrap">' +
+          '<button class="act" data-sample="manual">ACME Widget manual</button>' +
+          '<button class="act" data-sample="policy">Refund policy</button>' +
+        "</div>" +
+        '<p class="muted" style="margin-top:14px">…or add your own in the <b>Library</b> tab.</p>' +
+      "</div></div>";
+    Array.prototype.forEach.call(el("emptyState").querySelectorAll("[data-sample]"), function (b) {
+      b.onclick = function () { trySample(b.getAttribute("data-sample")); };
+    });
+  }
+  async function trySample(key) {
+    var s = SAMPLES[key];
+    if (!s) return;
+    try {
+      var res = await api("/documents/text", {
+        method: "POST", body: JSON.stringify({ file_name: s.file_name, text: s.text })
+      });
+      state.activeDocId = res.id;
+      await go("chat");
+      var input = el("chatInput");
+      if (input) { input.value = s.question; input.focus(); }
+      if (s.hint) toastHint(s.hint);
+    } catch (e) { toast(e); }
+  }
+  function toastHint(msg) {
+    var t = document.getElementById("toast");
+    t.style.background = "var(--amber)";
+    t.textContent = msg;
+    t.style.display = "block";
+    setTimeout(function () { t.style.display = "none"; t.style.background = "var(--red)"; }, 7000);
+  }
+
+  // --- routing ------------------------------------------------------------
+  var RENDER = { chat: renderChat, library: renderLibrary, verify: renderVerify, stats: renderStats };
+  async function go(tab) {
+    state.tab = tab;
+    Array.prototype.forEach.call(document.querySelectorAll("#tabs button"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-tab") === tab);
+    });
+    el("view").innerHTML = '<div class="panel"><span class="spinner"></span> loading…</div>';
+    try {
+      await loadDocs();
+      await loadHealth();
+      RENDER[tab]();
+    } catch (e) { toast(e); }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs button"), function (b) {
+    b.onclick = function () { go(b.getAttribute("data-tab")); };
+  });
+  go("chat");
+})();
+</script>

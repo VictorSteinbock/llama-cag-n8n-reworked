@@ -15,6 +15,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -287,6 +288,22 @@ def cmd_status(_: argparse.Namespace) -> int:
                 pass
         print(f"{marker} {name:<13} HTTP {status} {url}{detail}")
 
+    # One-line usage summary from GET /stats. Guarded exactly like the health
+    # checks: stats are a nicety, so a hiccup never fails `status`.
+    api_base = f"http://localhost:{port(env, 'CAG_API_PORT', '8000')}"
+    try:
+        s_status, s_body = http_get(f"{api_base}/stats")
+        if s_status == 200:
+            stats = json.loads(s_body)
+            day = stats["windows"]["24h"]
+            allw = stats["windows"]["all"]
+            usd = stats["savings"]["estimated_usd"]
+            money = f", ~${usd} saved" if usd else ""
+            print(f"     usage: {day['queries']} queries/24h, "
+                  f"{allw['tokens_reused']:,} tokens reused all-time{money}")
+    except (OSError, json.JSONDecodeError, KeyError):
+        pass  # stats are a nicety; never fail `status` over them
+
     print_resource_snapshot()
     return 0
 
@@ -374,6 +391,133 @@ def cmd_query(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_output(dest: Path, text: str) -> None:
+    """Write a prepared .md, creating the destination folder only at write time
+    (so a guided-error run never leaves an empty ./prepared behind)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text, encoding="utf-8")
+
+
+def _pdf_text_layer(path: Path) -> str | None:
+    """Return a PDF's embedded text layer, or None if it has none / can't be read.
+
+    Mirrors api/app/extract._from_pdf but is intentionally re-implemented here so
+    the stdlib-only CLI never imports app.* (which would pull in FastAPI). pypdf
+    is an api dependency, not a root one, so a bare clone may lack it — a missing
+    pypdf just means 'cannot self-extract', never a crash."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    try:
+        reader = PdfReader(str(path))
+        text = "\n\n".join((page.extract_text() or "") for page in reader.pages).strip()
+    except Exception:
+        # Corrupt streams raise bare KeyError/struct.error; encrypted PDFs raise
+        # DependencyError. Any failure just means 'no usable text'.
+        return None
+    return text or None
+
+
+def _run_converter(prepare_cmd: str, src: Path, dest: Path, docs_folder: str) -> int:
+    """Run the configured PREPARE_CMD converter with injection-safe argv.
+
+    {in}/{out} are substituted as whole argv elements (resolved-absolute paths,
+    which cannot start with '-' and so can't be parsed as converter options);
+    subprocess.run gets a list argv, never shell=True."""
+    tmp_out = dest.parent / (dest.name + ".partial")
+    token_map = {"{in}": str(src.resolve()), "{out}": str(tmp_out.resolve())}
+    argv = [token_map.get(token, token) for token in shlex.split(prepare_cmd)]
+    if not argv:
+        print("[!!] PREPARE_CMD is empty after parsing.")
+        return 1
+    if shutil.which(argv[0]) is None:
+        print(f"[!!] Converter '{argv[0]}' is not on PATH. Install it, or fix PREPARE_CMD in .env.")
+        return 1
+    # Create the output folder only once we're actually going to run (a
+    # missing-converter bail leaves no empty staging folder behind).
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(argv, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"[!!] Converter failed (exit {proc.returncode}):")
+        print((proc.stderr or "")[:2000])
+        tmp_out.unlink(missing_ok=True)
+        return 1
+    if tmp_out.exists() and tmp_out.stat().st_size > 0:
+        tmp_out.replace(dest)
+    elif proc.stdout.strip():
+        _write_output(dest, proc.stdout)
+        tmp_out.unlink(missing_ok=True)
+    else:
+        print("[!!] Converter produced no output.")
+        tmp_out.unlink(missing_ok=True)
+        return 1
+    print(f"[OK] Converted {src} -> {dest}. Review it before trusting the grounding, "
+          f"then move it into {docs_folder} to ingest.")
+    return 0
+
+
+def _print_no_converter(src: Path) -> None:
+    print(
+        f"[!!] '{src.name}' has no extractable text layer (scanned, image-only, or\n"
+        "     chart/table-heavy), and no converter is configured. cag-api ingests faithful\n"
+        "     text only; turning a visual PDF into Markdown is a separate step. Configure one\n"
+        "     converter in .env as PREPARE_CMD:\n\n"
+        "       Local, private (document never leaves your machine):\n"
+        "         marker   -- pip install marker-pdf ; PREPARE_CMD=marker {in} {out}\n"
+        "         docling  -- pip install docling     ; PREPARE_CMD=docling {in} --to md --output {out}\n"
+        "         a local vision model (e.g. llama.cpp mmproj / Ollama) that emits Markdown\n\n"
+        "       Cloud vision model (FASTER/higher quality, but the document IS SENT to a third\n"
+        "       party -- do not use for confidential material):\n"
+        "         your provider's PDF/vision-to-Markdown CLI as PREPARE_CMD=<cmd> {in} {out}\n\n"
+        f'     Then re-run: python llamacag.py prepare "{src}"'
+    )
+
+
+def cmd_prepare(args: argparse.Namespace) -> int:
+    env = read_env()
+    prepare_cmd = env.get("PREPARE_CMD", "").strip()
+    out_folder = PROJECT_ROOT / env.get("PREPARE_OUT_FOLDER", "./prepared")
+    docs_folder = env.get("DOCUMENTS_FOLDER", "./documents")
+
+    src = Path(args.file)
+    if not src.exists() or not src.is_file():
+        print(f"[!!] No readable file at {src}")
+        return 1
+
+    dest = Path(args.out) if args.out else (out_folder / (src.stem + ".md"))
+    if dest.exists():
+        print(
+            f"[i] {dest} already exists. Re-running prepare on a revised conversion ingests as a "
+            "NEW document (dedupe is by content hash, not file name): the old row and its KV "
+            "cache linger and untargeted queries jump to the newest. List documents and DELETE "
+            "the superseded id, and pass document_id explicitly in workflows while iterating."
+        )
+        if not args.force:
+            print(f"[!!] Refusing to overwrite {dest} without --force.")
+            return 1
+
+    text_suffixes = {".md", ".markdown", ".txt", ".text", ".html", ".htm"}
+    if src.suffix.lower() in text_suffixes:
+        _write_output(dest, src.read_text(encoding="utf-8", errors="replace"))
+        print(f"[OK] Copied {src} -> {dest} (already text; no conversion needed). "
+              f"Move it into {docs_folder} to ingest.")
+        return 0
+
+    text = _pdf_text_layer(src)
+    if text:  # fastest, offline path — never shells out
+        _write_output(dest, text)
+        print(f"[OK] Extracted text layer -> {dest}. Review it, then move it into "
+              f"{docs_folder} to ingest.")
+        return 0
+
+    if prepare_cmd:
+        return _run_converter(prepare_cmd, src, dest, docs_folder)
+
+    _print_no_converter(src)
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="llamacag", description="Manage the llama-cag-n8n stack"
@@ -410,6 +554,14 @@ def main() -> int:
     p_query.add_argument("--doc", type=int, help="document id (default: latest cached)")
     p_query.add_argument("--max-tokens", type=int)
     p_query.set_defaults(func=cmd_query)
+
+    p_prepare = sub.add_parser(
+        "prepare", help="convert a PDF/scan/chart doc to Markdown for ingestion"
+    )
+    p_prepare.add_argument("file", help="path to the document to prepare")
+    p_prepare.add_argument("--out", help="destination .md (default: PREPARE_OUT_FOLDER, ./prepared)")
+    p_prepare.add_argument("--force", action="store_true", help="overwrite an existing destination")
+    p_prepare.set_defaults(func=cmd_prepare)
 
     args = parser.parse_args()
     return args.func(args)

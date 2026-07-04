@@ -21,6 +21,7 @@ way — the first query recomputes, correctness is never affected.
 """
 
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -30,6 +31,7 @@ from collections.abc import Callable
 from .config import Settings
 from .db import Database
 from .extract import extract_text
+from .grounding import grounding
 from .llama import LlamaClient, LlamaError
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,29 @@ SYSTEM_TEMPLATE = (
 
 # The ~20-token warm turn is the deliberate price of model-agnostic warming.
 WARM_USER_MESSAGE = "Reply with the single word: ready"
+
+# The single, shared verdict schema for POST /verify. F2 (answer-gate), F4
+# (calibration) and F9 (Verify tab) reference this by name — never redefine it.
+# The `conditions` field (F3) surfaces a scope the document places on the claim
+# (e.g. "only if defective") so a conditional isn't mislabeled as unconditional.
+DEFAULT_VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "claim": {"type": "string"},
+        "verdict": {"enum": ["supported", "absent", "contradicted"]},
+        "quote": {"type": "string"},
+        "conditions": {"type": "string"},
+    },
+    "required": ["claim", "verdict", "quote", "conditions"],
+}
+
+VERIFY_PROMPT_TEMPLATE = (
+    'Verify this claim strictly against the document: "{claim}". '
+    "Give your verdict (supported, contradicted, or absent), the exact verbatim "
+    'supporting or contradicting passage as "quote" (empty string if absent), and in '
+    '"conditions" any scope or condition the document places on the claim (empty '
+    "string if it applies unconditionally)."
+)
 
 
 class DocumentTooLargeError(Exception):
@@ -76,6 +101,25 @@ def _estimate_turn_tokens(content: str) -> int:
     """Cheap turn-size estimate for history budgeting: ~3 chars per token plus
     a small per-turn allowance for the chat template's role framing."""
     return len(content) // 3 + 8
+
+
+def _normalize_answer(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _score_answer(got: str, expected: str, *, strict: bool, threshold: float) -> bool:
+    """Did the answer match the expected value? Containment-first: a correct short
+    answer ("12 A") embedded in a verbose reply must score correct, which a
+    whole-string ratio would miss. Below containment, grounding()'s anchored-window
+    fuzzy match (from F1) tolerates spacing/format drift ("150C" vs "150 C")."""
+    exp, ans = _normalize_answer(expected), _normalize_answer(got)
+    if not exp:
+        return False  # empty expected is a spec error, never a pass
+    if strict:
+        return ans == exp
+    if exp in ans:  # normalized containment: the primary signal
+        return True
+    return grounding(expected, got, threshold=threshold)["match_ratio"] >= threshold
 
 
 class CagEngine:
@@ -407,6 +451,120 @@ class CagEngine:
             "timings": timings_out,
         }
 
+    def verify_claim(
+        self, claim: str, document_id: int | None = None, max_tokens: int | None = None
+    ) -> dict:
+        """Verify a claim against a document, then mechanically ground the quote.
+
+        The generation goes through the existing ``query()`` verbatim: the verify
+        instruction rides in a *user* turn and ``DEFAULT_VERDICT_SCHEMA`` is passed
+        as the sampling schema, so the cached document prefix stays byte-identical
+        (invariant 1). ``grounding()`` then confirms the model's ``quote`` actually
+        occurs in the source bytes.
+
+        Asymmetry worth stating plainly: grounding **hardens**
+        ``supported``/``contradicted`` (there is a passage to check) but **cannot**
+        harden ``absent`` (``quote_grounded=None``) — and it verifies the quote's
+        *existence*, not the claim's *entailment*. That gap is why F4 (calibration)
+        and F2 (answer-gating) exist.
+        """
+        question = VERIFY_PROMPT_TEMPLATE.format(claim=claim)
+        result = self.query(
+            question,
+            document_id=document_id,
+            max_tokens=max_tokens or self._settings.default_max_answer_tokens,
+            temperature=0.0,
+            json_schema=DEFAULT_VERDICT_SCHEMA,
+        )
+        # Ground against the exact cached bytes. query()'s return carries only
+        # {id, file_name, n_tokens}, so re-fetch the content; that re-fetch can
+        # race a concurrent delete (get_document -> dict | None), so guard it —
+        # a vanished document is a 404, never a 500.
+        resolved_id = result["document"]["id"]
+        doc = self._db.get_document(resolved_id, with_content=True)
+        if doc is None:
+            raise UnknownDocumentError(f"Document {resolved_id} was deleted")
+
+        # A schema-constrained answer is a JSON object; anything else (non-JSON,
+        # or valid JSON that isn't an object) collapses to verdict "error" so the
+        # endpoint stays 200 and the response shape is stable.
+        try:
+            parsed = json.loads(result["answer"])
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            verdict = parsed.get("verdict")
+            quote = parsed.get("quote", "")
+            conditions = parsed.get("conditions", "")
+            # Coerce non-string quote/conditions (a schema slip could yield a
+            # number/bool/list): a non-str quote reaching grounding() would call
+            # .strip() on an int and 500. Non-strings collapse to "".
+            if not isinstance(quote, str):
+                quote = ""
+            if not isinstance(conditions, str):
+                conditions = ""
+        else:
+            verdict, quote, conditions = "error", "", ""
+        if verdict not in {"supported", "absent", "contradicted"}:
+            verdict = "error"
+
+        if verdict != "error":
+            g = grounding(quote, doc["content"], threshold=self._settings.quote_match_threshold)
+        else:
+            g = {"grounded": None, "match_ratio": 0.0, "method": "absent"}
+
+        return {
+            "claim": claim,
+            "verdict": verdict,
+            "quote": quote,
+            "conditions": conditions,
+            "quote_grounded": g["grounded"],
+            "match_ratio": g["match_ratio"],
+            "grounding_method": g["method"],
+            "document": result["document"],
+            "duration_ms": result["duration_ms"],
+            "timings": result["timings"],
+        }
+
+    def calibrate(
+        self, document_id: int, qa: list[dict], *, strict: bool = False,
+        max_tokens: int | None = None,
+    ) -> dict:
+        """Run a known-answer Q/A battery against a document at temperature 0 and
+        score each answer, returning {n, correct, accuracy, misses}.
+
+        Measures *this* canon under *this* model — the escalation rate you should
+        expect before trusting the oracle on it. Composes over query() per item
+        (builds no prompt of its own, so SYSTEM_TEMPLATE and KV reuse are
+        untouched, invariant 1), and query() releases _lock between items so a
+        long battery never starves health() (invariant 4). The 404 check happens
+        before any generation (fail fast)."""
+        doc = self._db.get_document(document_id)
+        if doc is None:
+            raise UnknownDocumentError(f"No document with id {document_id}")
+        threshold = self._settings.calibrate_match_threshold
+        correct, misses = 0, []
+        for item in qa:
+            question, expected = item["question"], item["expected"]
+            result = self.query(
+                question, document_id=document_id, temperature=0.0, max_tokens=max_tokens
+            )
+            got = result["answer"]
+            if _score_answer(got, expected, strict=strict, threshold=threshold):
+                correct += 1
+            else:
+                misses.append({"question": question, "expected": expected, "got": got})
+        n = len(qa)
+        accuracy = round(correct / n, 4) if n else 0.0
+        if hasattr(self._db, "set_reliability"):  # no-op here; lights up with the deferred column
+            self._db.set_reliability(document_id, accuracy)
+        return {
+            "document": {
+                "id": doc["id"], "file_name": doc["file_name"], "n_tokens": doc["n_tokens"],
+            },
+            "n": n, "correct": correct, "accuracy": accuracy, "strict": strict, "misses": misses,
+        }
+
     def _make_hot(self, doc: dict) -> tuple[int, str]:
         """Ensure doc's KV state is resident in a slot.
 
@@ -559,6 +717,29 @@ class CagEngine:
             "cache_files": len(on_disk) - len(orphans_removed),
             "cache_bytes": cache_bytes,
             **self._db.stats(),
+        }
+
+    def usage_stats(self) -> dict:
+        """GET /stats: usage aggregates + a cost-savings estimate. Pure read of
+        query_log; touches neither lock, so it answers even mid-generation and
+        when inference is down. Pricing policy lives here (with Settings), not in
+        the DB layer, mirroring how list_documents/maintenance delegate."""
+        windows = self._db.usage_stats()
+        price = self._settings.cloud_price_per_1k_input
+        reused_all = windows["all"].get("tokens_reused") or 0
+        estimated = round(reused_all / 1000 * price, 4) if price > 0 else None
+        return {
+            "windows": windows,
+            "savings": {
+                "cloud_price_per_1k_input": price,
+                "tokens_reused_all_time": reused_all,
+                "estimated_usd": estimated,
+                "is_estimate": True,
+                "note": (
+                    "Estimate: tokens_reused / 1000 * cloud_price_per_1k_input. "
+                    "Set CLOUD_PRICE_PER_1K_INPUT to your provider's input price to enable."
+                ),
+            },
         }
 
     def health(self) -> dict:

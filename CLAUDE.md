@@ -50,8 +50,9 @@ docker compose config -q             # validate compose (requires .env or env va
 ## Conventions
 
 - n8n workflow JSON: only long-stable nodes (webhook, httpRequest 4.2,
-  scheduleTrigger, localFileTrigger, readWriteFile, set 3.4, respondToWebhook,
-  stickyNote). No Function/Cron/ExecuteCommand (deprecated or disabled in n8n 2.x).
+  scheduleTrigger, localFileTrigger, readWriteFile, set 3.4, splitOut, aggregate,
+  respondToWebhook, stickyNote). No Function/Cron/ExecuteCommand (deprecated or
+  disabled in n8n 2.x).
 - Container-executed text files (*.sh, *.sql, Dockerfile) are forced LF via
   .gitattributes — this repo is developed on Windows.
 - Tests use the fakes in `api/tests/conftest.py` (FakeDatabase/FakeLlama); they

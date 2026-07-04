@@ -51,6 +51,15 @@ services:
       # extractive answers — see "Running it as a dedicated chatbot" in README.
       - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.2}
       - DEFAULT_MAX_ANSWER_TOKENS=${DEFAULT_MAX_ANSWER_TOKENS:-1024}
+      # Paraphrase tolerance for POST /verify's quote grounding (higher = stricter).
+      - QUOTE_MATCH_THRESHOLD=${QUOTE_MATCH_THRESHOLD:-0.9}
+      # Cloud per-1k input-token price for GET /stats' savings estimate (0.0 hides it).
+      - CLOUD_PRICE_PER_1K_INPUT=${CLOUD_PRICE_PER_1K_INPUT:-0.0}
+      # POST /documents/{id}/calibrate: battery cap + non-strict scoring pass line.
+      - CALIBRATE_MAX_ITEMS=${CALIBRATE_MAX_ITEMS:-100}
+      - CALIBRATE_MATCH_THRESHOLD=${CALIBRATE_MATCH_THRESHOLD:-0.85}
+      # Serve the zero-install web UI at /ui (loopback-only; unauthenticated stack).
+      - WEBUI_ENABLED=${WEBUI_ENABLED:-true}
       - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-50}
       - CACHE_DIR=/caches
       - DB_HOST=db

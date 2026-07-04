@@ -17,16 +17,16 @@ on another roadmap item) · **Design-first** (needs a design decision before cod
 
 | # | Feature | Tier | Effort | Status |
 |---|---------|------|--------|--------|
-| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Ready |
-| F2 | Answer-gating pattern + fail-safe gate | Composition | S | Ready·dep (F1) |
-| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Ready·dep (F1) |
-| F4 | Per-canon reliability battery (calibration) | New capability | M | Ready |
-| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Ready |
-| F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Ready (docs shipped) |
+| F1 | Quote-grounding check (`/verify` endpoint) | Core upgrade | S | Shipped (branch) |
+| F2 | Answer-gating pattern + fail-safe gate | Composition | S | Shipped (branch) |
+| F3 | Scope/conditions field in the verdict schema | Core upgrade | XS | Shipped (branch) |
+| F4 | Per-canon reliability battery (calibration) | New capability | M | Shipped (branch) |
+| F5 | Usage & cost-savings observability (`/stats`) | New capability | M | Shipped (branch) |
+| F6 | Document preprocessing (PDF→Markdown) helper | Tooling | M | Shipped (branch) |
 | F7 | Cross-document queries (concat / diff / federate) | Rework | L | Design-first |
 | F8 | Multi-user / RBAC | Product fork | XL | Design-first |
-| F9 | Zero-install web UI (served at `/ui`) | New capability | M | Ready |
-| F10 | Sample documents + guided first-run | Tooling | S | Ready |
+| F9 | Zero-install web UI (served at `/ui`) | New capability | M | Shipped (branch) |
+| F10 | Sample documents + guided first-run | Tooling | S | Shipped (branch) |
 
 ---
 

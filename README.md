@@ -12,17 +12,64 @@ re-reading the document every time.**
 
 > **Not technical?** Read **[the two-minute, plain-words version](docs/EXPLAINER.md)**
 > — a brilliant reader, a filing clerk, and why reading once beats re-reading forever.
+>
+> **Nervous about the install?** The **[step-by-step setup guide](docs/SETUP.md)**
+> walks it in plain words — or, if you use Claude Code,
+> **[let it set everything up for you](docs/SETUP.md#let-claude-code-do-it)**.
 
-This is a self-hosted implementation of **Cache-Augmented Generation (CAG)**: a
-document is processed by the model **once**, the resulting KV cache (the model's
-internal state after reading it) is **saved to disk**, and every later question
-**restores** that state — so only your question and the answer are ever computed
-again. On CPU hardware, that turns minutes of prompt processing into seconds.
+You have a document you need to **ask questions of** — a product manual, a
+contract, a compliance binder, a vendor spec — and you'll ask it not once but
+dozens of times over the coming weeks. Every way of doing that today makes you
+give something up:
 
-Everything runs in Docker: [llama.cpp's `llama-server`](https://github.com/ggml-org/llama.cpp)
-for inference and cache persistence, a small FastAPI orchestrator (`cag-api`),
-[n8n](https://n8n.io/) for automation, and PostgreSQL for metadata. Works on
-Windows, macOS, and Linux — no host compilation, no external APIs.
+- **Send it to the cloud:** smart and fast, but your private document leaves the
+  building, and you pay for every question — re-reading the whole thing each new
+  session.
+- **Run a local model the ordinary way:** private and free, but it re-reads the
+  entire document from scratch on *every* question — minutes of waiting, every
+  single time.
+- **Chop it into a vector database (RAG):** quick, but the model only ever sees a
+  few retrieved snippets, never the whole document — so it misses whatever lives
+  in the connections between pages.
+
+None of those is the thing you actually want, which is simply *a model that has
+**read your document** and remembers it.*
+
+**That's what this is.** Hand it a document once; it reads the whole thing a
+single time, on your own hardware, and keeps that understanding. Every question
+afterward is answered against the **entire** document — in seconds, for free, and
+without a byte leaving your machine. **Read once. Ask forever.**
+
+**How, in a sentence:** this is a self-hosted implementation of **Cache-Augmented
+Generation (CAG)** — when the model reads your document, its internal state (the
+"KV cache") is saved to disk, and every later question *restores* that state
+instead of re-reading, so only your question and the answer are ever computed
+again. It all runs in Docker —
+[llama.cpp's `llama-server`](https://github.com/ggml-org/llama.cpp) for inference
+and cache persistence, a small FastAPI orchestrator (`cag-api`),
+[n8n](https://n8n.io/) for automation, and PostgreSQL for metadata — on Windows,
+macOS, or Linux, with no host compilation and no external APIs.
+
+## Is this for you?
+
+Before the details, here is the whole trade-off in one picture — the situations
+this is built for, the ones better served by another tool, and the operating
+realities that hold even in the sweet spot:
+
+<p align="center">
+  <img src="docs/images/is-this-for-you.svg" alt="Great fit: many questions against one steady document; answers that must stay private; grounded, checkable answers; a bot or automation doing the asking; a coding agent needing a pinned spec. Use another tool for: thousands of documents; a document too big to fit the context window; multi-user logins and roles; asking each document only once; cross-document questions. Operating realities: warm once per document (minutes on CPU, then seconds); text is the input (visual PDFs need a prepare pass); local and unauthenticated (loopback is the boundary); sized to your RAM." width="100%">
+</p>
+
+If the left column sounds like your problem, the rest of this README is worth
+your time. If the right column does, [CAG vs RAG](#cag-vs-rag-honestly) and
+[Why not just Open WebUI](#why-not-just-open-webui-or-anythingllm) point you
+onward, honestly. New to all this? Start with the
+[plain-words explainer](docs/EXPLAINER.md) or the
+[setup guide](docs/SETUP.md).
+
+Prefer to see it as deployments? **[docs/USE-CASES.md](docs/USE-CASES.md)** is
+the five-page tour — one real-world use case per page, each slide carrying the
+mechanics that hold it up *and* its honest limit.
 
 ## Where this shines
 
@@ -46,7 +93,9 @@ metered: every fresh session, every post-compaction re-read, pays for the full
 spec again. Point the agent at the local `ask_document` MCP tool instead and
 only questions (~tens of tokens) and answers cross the boundary. The spec stays
 pinned in a local KV cache — never occupying the agent's context, never
-expiring, never billed, never leaving your machine.
+expiring, never billed, never leaving your machine. Your workstation's spare
+RAM is the asset here: it holds the spec warm so the metered context window
+never has to carry it.
 
 **The team reference desk.** Contracts, runbooks, compliance manuals, an SOP
 binder — documents a team asks the same questions against for weeks, and that
@@ -108,9 +157,11 @@ flowchart LR
 ```
 
 A cloud agent drafts; one cheap local call checks the draft against the source
-of truth *before it ships*. Make the verdict machine-readable with a
-[`json_schema`](#structured-output) and the oracle becomes a typed verifier: a
-claim in, a `{claim, verdict, quote}` object out. The bundled
+of truth *before it ships*. The verdict is machine-readable — a claim in, a
+`{claim, verdict, quote, conditions, quote_grounded}` object out — and
+[`POST /verify`](#the-api) goes one step further: it **mechanically** confirms the
+returned quote actually occurs in the source bytes and reports `quote_grounded`,
+so a fabricated citation is caught with **zero** extra model calls. The bundled
 **claim-verification workflow** batch-verifies a whole list that way in one
 call — each claim checked at `temperature 0` against the pinned document, one
 bad claim captured without aborting the rest:
@@ -119,9 +170,9 @@ bad claim captured without aborting the rest:
 curl -X POST http://localhost:5678/webhook/cag/verify \
   -H "Content-Type: application/json" \
   -d '{"claims": ["The peak current limit is 12 A.",
-                  "The warranty covers water damage."]}'
-# → [{"claim": "…", "verdict": "supported",     "quote": "…"},
-#    {"claim": "…", "verdict": "contradicted",  "quote": "…"}]
+                  "Widgets are refundable within 30 days."]}'
+# → [{"claim": "…", "verdict": "supported",    "quote": "…", "quote_grounded": true, "conditions": ""},
+#    {"claim": "…", "verdict": "contradicted", "quote": "…", "quote_grounded": true, "conditions": "only if defective"}]
 ```
 
 This closes a **productized critique loop**: a drafting agent (Claude Code, or
@@ -131,14 +182,61 @@ anything ships.
 
 **What it guarantees — and what it doesn't.** The verdict is *reproducible* and
 *source-grounded*: the model always has the whole document in context (no
-retrieval miss) and must quote its evidence, so a fabricated citation is
-visible. But it is a model judgement, not a proof — the model can misread real
-evidence, and an `absent` verdict may be a miss on a long document rather than a
-true gap. Treat it as a **fail-safe gate**: auto-pass only on `supported` with a
-quote that checks out; route `absent` and `contradicted` to review. Turning that
-citation into an *automatic* check (does the quote literally appear in the
-source?) and scoring each canon's retrieval reliability are the first items on
-the [roadmap](docs/ROADMAP.md).
+retrieval miss) and must quote its evidence, and `POST /verify` **mechanically**
+checks that quote against the source — so a fabricated citation is caught
+automatically (`quote_grounded: false`), no extra model call. But grounding is
+**asymmetric**: it hardens `supported`/`contradicted` (there is a passage to
+check) but **cannot** harden `absent` (`quote_grounded: null`), and it verifies
+the quote's *existence*, not the claim's *entailment* — the model can still
+misread real evidence. Treat it as a **fail-safe gate**: auto-pass only on
+`supported` with a grounded quote; route `absent` and `contradicted` to review.
+And you don't have to guess how reliable the oracle is on a given document —
+**calibrate** it (below).
+
+### Know your canon's reliability
+
+`absent` is the honest weak spot: on a long document a model can miss a fact
+that *is* there (lost-in-the-middle) and answer `absent`. Instead of guessing
+that rate, measure it. `POST /documents/{id}/calibrate` runs a known-answer Q/A
+battery against the document at `temperature 0` and scores each answer:
+
+```bash
+curl -X POST http://localhost:8000/documents/7/calibrate \
+  -H "Content-Type: application/json" \
+  -d '{"qa": [{"question": "What is the peak current limit?", "expected": "12 A"},
+              {"question": "When does thermal shutdown trigger?", "expected": "150 C"}]}'
+# → {"document": {...}, "n": 2, "correct": 2, "accuracy": 1.0, "strict": false, "misses": []}
+```
+
+`accuracy` ≈ 1 − the expected miss rate for that battery, so you can pick a safe
+operating point (a smaller canon, a bigger model) *before* you rely on it, and
+`misses` shows exactly what the model got wrong. The ground truth is yours, so
+this measures **this canon under this model** — not the model in general. The
+bundled `calibration` workflow wraps the same call for non-technical operators.
+
+### Gating a support bot's answers
+
+For a support bot the question already exists, so the right architecture is
+**answer-compare**, not decompose-and-verify. Splitting a draft into atomic
+claims and checking each verifies isolated facts but can pass a draft whose facts
+are individually true yet whose *conclusion* is wrong. Answer-compare skips the
+decomposition entirely: regenerate the grounded answer fresh (`temperature 0`),
+then have `/verify` confirm the draft against the source — one grounded
+generation, checking the thing that actually ships. The **fail-safe rule** holds:
+auto-pass **only** on `supported` with a grounded quote; a non-supported verdict,
+a fabricated quote, or any API error all route to human review.
+
+```bash
+curl -X POST http://localhost:5678/webhook/cag/answer-gate \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": 7,
+       "question": "Does the warranty cover water damage?",
+       "draft": "Yes — the warranty fully covers water damage."}'
+# → {"pass": false, "verdict": "contradicted", "reason": "Escalated: ...", ...}
+```
+
+The bundled `answer-gate` workflow implements exactly this — one webhook, no
+credentials, fail-closed on any error.
 
 ### It composes with LLM wikis and second brains
 
@@ -168,7 +266,87 @@ something it must consult, and can be caught deviating from.
   <img src="docs/images/verify-workflow.svg" alt="The bundled claim-verification workflow as a node graph: webhook → split claims → HTTP verify → collect verdict / mark failure → aggregate → respond." width="100%">
 </p>
 
-The bundled verification workflow, as imported into n8n — five of these ship in `n8n/workflows/`.
+The bundled verification workflow, as imported into n8n — seven of these ship in `n8n/workflows/`.
+
+## What it's for, and what to expect — in plain words
+
+If the sections above got technical, here is the whole thing again for a
+non-technical reader: what you'd use it for, whether you need the app, and what
+it does to your computer.
+
+**What people actually use it for.** A handful of everyday shapes:
+
+- **Ask a big document questions without reading it yourself** — point it at a
+  200-page manual, a contract, or a policy binder and ask *"does the warranty
+  cover water damage?"* You get the answer *and* the exact line it came from, in
+  seconds. Because it reads your real document, it can't invent a rule that isn't
+  there.
+- **A private help desk that knows your handbook** — give it your product manual
+  and it answers staff or customers from that manual and nothing else. Nothing
+  leaves your building, it never makes up policy, and each answer costs nothing.
+- **A memory for your AI coding assistant** — hand a tool like Claude Code one
+  giant spec, once; from then on it *looks things up* instead of re-reading the
+  whole spec every time, which saves money and keeps its attention on your code.
+- **An automation that checks facts** — a no-code n8n workflow can ask your
+  rulebook *"is this claim true?"* and get back yes / no **with the supporting
+  quote**. No programming, no separate database.
+
+The through-line, in one line: **you have one dense document (or a few) and you
+ask it many questions over time.** That's where it beats the cloud (this is
+private, and free per question) *and* ordinary search tools (it reads the *whole*
+document every time, not a few snippets it fished out).
+
+**Do you need the app or the web page? No — the screens are optional.** This is
+the part people find confusing, so plainly: the real product is the engine and
+its automation, and you can run *everything* by dropping files into a folder and
+calling a web address — without ever opening a screen. If you'd rather click
+around, there are **two optional windows**, and they deliberately overlap:
+
+- the **built-in web UI** — nothing to install, just open
+  **http://localhost:8000/ui** in any browser once the stack is running; and
+- the **[LlamaCag desktop app](https://github.com/VictorSteinbock/LlamaCagUI)** —
+  a separate, optional program you install like any other app.
+
+They are **not the same program**, but they do the same friendly things — chat
+with a document, see what's stored, check that everything is healthy. Both are
+just a **window onto what's happening under the hood**, not the point of the
+project; use whichever you like, or neither, and the engine works exactly the
+same.
+
+**Where everything lives — all on your machine.**
+
+- Your **documents** stay in a normal folder you control (`./documents`), or you
+  upload them in the web UI. They are never sent anywhere.
+- The model's **memory** of each document is a cache file on your disk — one file
+  per document. That file is what lets it skip re-reading after a restart.
+- The **AI model itself** is one large file (~6.5 GB) downloaded once into a
+  private Docker volume; after that it runs with the internet switched off.
+- A small database on your disk keeps the records — which documents exist, what
+  was asked. None of this is in the cloud. *(The [Architecture](#architecture)
+  diagram shows all four pieces.)*
+
+**What it uses while running.** One steady cost, and the rest is quiet. Stack on
+but idle: it holds the model plus a fixed block of memory (sized by your
+settings) — flat, forever. Your CPU only works hard for one thing — the **first**
+time it reads each new document (minutes) — and every question after that is a
+brief blip. Adding more documents costs a little disk each and **no** extra
+memory. *(The full [resource story](#resource-anatomy--what-uses-what-when) is
+under the hood.)*
+
+**Switching models is safe now — this used to be the trap.** Home-grown versions
+of this idea had a nasty footgun: a saved memory was tied to the exact model that
+produced it, and loading it under a *different* model could silently hand you
+corrupt answers, with no warning. **This rebuild closes that hole for you.** It
+stamps each set of caches with a fingerprint of the model that made them; the
+moment you switch models (or even quant levels), it notices the mismatch and
+throws the stale memories away automatically — you *cannot* accidentally read one
+model's memory with another model. The only thing you'll notice is that right
+after a switch, the first question about each document is slow again (it re-reads,
+once), then fast forever. **Nothing here is yours to manage by hand:** the old
+warm-up / basic / fallback modes are gone, replaced by one automatic policy that
+runs the whole time. *(Specifics in
+[Updating & maintenance](#updating--maintenance) and
+[Choosing a model](#choosing-a-model-state-of-play-mid-2026).)*
 
 ## Quick start
 
@@ -191,8 +369,10 @@ with `python llamacag.py logs llama-server`, and confirm readiness with
 **Set up n8n (one-time, ~2 minutes):**
 
 1. Open http://localhost:5678 and create the local owner account.
-2. Import the five workflows from [`n8n/workflows/`](n8n/workflows/)
-   (*Workflows → ⋯ → Import from file*).
+2. Import the seven workflows from [`n8n/workflows/`](n8n/workflows/)
+   (*Workflows → ⋯ → Import from file*). Upgrading an existing deployment? Re-import
+   `claim-verification-workflow.json` (now backed by `/verify`) and import the new
+   `answer-gate-workflow.json`.
 3. Activate each one. **No credentials to configure** — the workflows only call
    `cag-api` over the internal Docker network.
 
@@ -214,6 +394,26 @@ python llamacag.py query "What are the safety limits in section 4?"
 The response includes `timings.cache_source` (`memory` / `disk` / `recomputed`)
 and how many prompt tokens were actually evaluated — after the first query
 that number should be tiny.
+
+**…or open the web UI:**
+
+Nothing to install — once the stack is up, open **http://localhost:8000/ui** in a
+browser. Drag in a document, chat with it (with the cache-source chip and token
+receipt), verify a list of claims, and see which documents are Hot / on Disk /
+Cold. It's a pure same-origin client of the endpoints above.
+
+No documents yet? The empty state offers **Try a sample** — one click ingests a
+bundled sample from [`samples/`](samples/) and drops you into Chat. Load the
+refund policy, then paste *"Widgets are refundable within 30 days"* into **Verify**
+to watch the oracle catch the condition.
+
+> **Security boundary.** The stack is **unauthenticated by design; loopback is
+> the security boundary.** The web UI is for the **local host**. Reaching it from
+> another machine means binding the API port beyond `127.0.0.1`, which exposes an
+> **unauthenticated API on your network** — only do that behind an authenticating
+> reverse proxy, or on a trusted LAN. Set `WEBUI_ENABLED=false` to turn the
+> browser surface off entirely. General multi-user access is a separate roadmap
+> item (F8), not this feature.
 
 ## The economics — the receipt
 
@@ -261,8 +461,10 @@ every task and paying to re-read it each turn, the agent calls the `ask_document
 tool: only the question and the answer cross the boundary, while the document
 stays pinned in a local KV cache the cloud model never has to carry. It's a thin
 stdio server (`python -m cag_mcp`) that just forwards to `cag-api` at
-`CAG_API_URL` (default `http://localhost:8000`), and it offers four tools —
-`list_documents`, `ask_document`, `ingest_text`, `ingest_file`.
+`CAG_API_URL` (default `http://localhost:8000`), and it offers five tools —
+`list_documents`, `ask_document`, `verify` (the
+[grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook) as
+an agent tool), `ingest_text`, and `ingest_file`.
 
 Register it with Claude Code (`pip install -e ./mcp` first, in the stack repo):
 
@@ -325,6 +527,22 @@ design doc, and any MCP-capable agent — coding or otherwise — gets a private
 grounded, queryable memory that never inflates its context and never leaves
 your machine.
 
+## Grounding autonomous agents (OpenClaw, Hermes, …)
+
+Agent runtimes that keep a **persistent, self-improving memory** — OpenClaw's
+`MEMORY.md`, Hermes Agent's episodic memory and skills — drift when a hallucinated
+fact is written to memory and then retrieved-and-reinforced on later turns. This
+stack is the fix: pin your source of truth as the canon and make `/verify` a
+**Write-Validation gate** — a candidate fact is checked *before* it enters memory,
+and contradicted / absent / fabricated-quote facts are quarantined instead of
+trusted. The canon lives in the KV cache, *outside* the agent's memory, so it
+can't be poisoned by the agent's own drift.
+
+Working code and per-framework recipes live in [`integrations/`](integrations/) —
+a tested, framework-agnostic `GroundingGate` plus a Hermes Agent plugin and an
+OpenClaw skill. The design, the drift mechanism (with sources), and the honest
+limits are in **[docs/AGENTS.md](docs/AGENTS.md)**.
+
 ## Running it as a dedicated chatbot
 
 The original motivation for this project — a narrow-domain support bot — is a
@@ -363,6 +581,9 @@ Interactive docs at http://localhost:8000/docs.
 | `GET /documents` | Registry with status, token counts, usage |
 | `DELETE /documents/{id}` | Remove document + its cache file |
 | `POST /query` | `{"question": "...", "document_id"?: n, "max_tokens"?: n, "temperature"?: x, "history"?: [{role, content}, …], "json_schema"?: {…}}` — no `document_id` means the most recently cached document; `history` enables multi-turn chat (earlier turns stay KV-cached, so each round only evaluates the newest exchange); `json_schema` constrains the answer to valid JSON matching that schema (see [Structured output](#structured-output)) |
+| `POST /verify` | `{"claim": "...", "document_id"?: n, "max_tokens"?: n}` → a grounded verdict `{claim, verdict, quote, conditions, quote_grounded, match_ratio, grounding_method, …}`. Runs one `temperature 0` check and **mechanically** confirms the quote occurs in the source (`quote_grounded`) — a fabricated citation is caught with no extra model call. Tune strictness with `QUOTE_MATCH_THRESHOLD`. See [the grounding oracle](#the-grounding-oracle--check-any-ai-against-your-rulebook) |
+| `POST /documents/{id}/calibrate` | `{"qa": [{"question", "expected"}, …], "strict"?: bool}` → runs the known-answer battery at `temperature 0` and scores each answer: `{n, correct, accuracy, misses, strict, document}`. `accuracy` ≈ 1 − the expected miss rate for *this* canon under *this* model; `misses` shows what it got wrong. Capped at `CALIBRATE_MAX_ITEMS` (default 100) → `422`. See [Know your canon's reliability](#know-your-canons-reliability) |
+| `GET /stats` | Usage over the query log in three windows (`24h` / `7d` / `all`) — tokens evaluated vs. reused and the `reuse_ratio` — plus an optional cost-savings estimate (set `CLOUD_PRICE_PER_1K_INPUT` to your provider's input price to enable the money line). Lock-free, so it answers even mid-generation |
 | `POST /maintenance` | Reconcile disk ↔ DB: delete orphaned caches, report missing ones, disk usage |
 | `GET /health` | 200 healthy / 503 degraded, with per-dependency detail |
 
@@ -413,15 +634,37 @@ text layer, extracts cleanly. What does *not* survive plain extraction:
 
 The stack trusts its extracted text as ground truth, so **garbage extraction
 means confidently wrong grounding** — the one failure no downstream safeguard
-can catch. The fix is to prepare rich documents *before* ingesting: convert them
-to clean Markdown with a vision-capable model or a document-to-Markdown tool (a
-chart becomes a described paragraph, a table becomes a Markdown table), eyeball
-the result, then drop the `.md` into the watch folder. This is a deliberate
-boundary — **cag-api ingests text; turning a visual PDF into faithful text is a
-separate preprocessing step**, kept out of the request path (which stays
-shell-free by design). An optional bundled converter is on the
-[roadmap](docs/ROADMAP.md); until then any PDF→Markdown tool works, because the
-ingestion layer only cares that what arrives is faithful text.
+can catch. The fix is to prepare rich documents *before* ingesting, with the
+bundled CLI:
+
+```bash
+python llamacag.py prepare path/to/report.pdf
+# text-layer PDF → extracted offline, no converter, nothing leaves your machine
+# scanned/chart PDF → uses your configured PREPARE_CMD (see below)
+# → writes ./prepared/report.md — review it, then move it into ./documents to ingest
+```
+
+A PDF with a real text layer is extracted **offline** with no converter. Only
+scanned / image / chart-heavy PDFs need a converter, set once in `.env` as
+`PREPARE_CMD` (a template where `{in}`/`{out}` are substituted as whole
+arguments — no shell). Pick by your privacy needs:
+
+- **Local, private** — `marker` (`pip install marker-pdf`), `docling`, or a local
+  vision model. The document never leaves your machine.
+- **Cloud vision model** — faster and often higher quality, **but the document is
+  sent to a third party**; don't use it for confidential material.
+
+Prepared files land in `./prepared` (a **staging** folder, not the watch folder)
+so you **eyeball the `.md` before trusting the grounding**, then move it into
+`./documents` to ingest. Re-running `prepare` on a revised conversion ingests as
+a **new** document (dedupe is by content hash, not file name) — the old row and
+its KV cache linger and untargeted queries jump to the newest, so delete the
+superseded id and pass `document_id` explicitly while iterating.
+
+This is a deliberate boundary — **cag-api ingests text; turning a visual PDF into
+faithful text is a separate preprocessing step**, kept out of the request path
+(which stays shell-free by design; the converter runs only in this CLI, as a list
+argv, never a shell string).
 
 ## Choosing a model (state of play, mid-2026)
 
@@ -495,6 +738,9 @@ for all knobs and comments). The defaults are sensible; the ones you might touch
 | `LLAMA_EXTRA_ARGS` | — | Extra llama-server flags, e.g. `--cache-reuse 256` |
 | `DOCUMENTS_FOLDER` | `./documents` | Folder watched by the ingestion workflow |
 | `GENERIC_TIMEZONE` | `UTC` | Used by n8n schedules |
+| `WEBUI_ENABLED` | `true` | Serve the zero-install web UI at `/ui` (loopback only) |
+| `PREPARE_CMD` | — | Converter template for `prepare` on scanned/visual PDFs (`{in}`/`{out}` substituted as whole args, no shell) |
+| `CLOUD_PRICE_PER_1K_INPUT` | `0.0` | Your cloud provider's input $/1k tokens — enables the `/stats` savings line |
 | `N8N_PORT` / `CAG_API_PORT` / `LLAMA_PORT` / `DB_PORT` | `5678/8000/8080/5432` | All bound to `127.0.0.1` |
 
 ## Under the hood
@@ -561,9 +807,10 @@ memory (Apple/Strix Halo) it's all one pool — which is why those machines are
 this architecture's natural home.
 
 **And it's observable, not asserted:** `python llamacag.py status` now prints
-live per-service CPU/RAM; llama-server's startup log states its exact
-weights/KV allocations (`python llamacag.py logs llama-server`); the nightly
-maintenance report tracks cache disk. Contrast with v1, which loaded the model
+live per-service CPU/RAM; `GET /stats` reports token reuse and an estimated
+cost-savings figure across three time windows; llama-server's startup log states
+its exact weights/KV allocations (`python llamacag.py logs llama-server`); the
+nightly maintenance report tracks cache disk. Contrast with v1, which loaded the model
 *and* whole pickled cache states inside the desktop app's own process — RAM
 pressure that grew with use and answered to nothing. v2's footprint is one
 predictable allocation in one container, tunable from `.env`, with documents
@@ -632,8 +879,8 @@ around it. Knowing your lane is the point.
 
 ## The family
 
-One engine (`llama-server` + the `cag-api` orchestrator), three faces on it —
-plus a desktop control room:
+One engine (`llama-server` + the `cag-api` orchestrator), four faces on it —
+plus an optional desktop control room:
 
 - **The API** (`cag-api`) — the typed HTTP surface. Everything programmatic
   lives here.
@@ -642,9 +889,15 @@ plus a desktop control room:
 - **The MCP server** (`cag-mcp`) — the stack as a local document-memory tool for
   Claude Code, Claude Desktop, and other agents (see
   [Use it from Claude Code](#use-it-from-claude-code-mcp)).
+- **The web UI** — a zero-install browser page served at `/ui` (chat, library,
+  verify, stats). A convenience view of the API; optional, local-only, nothing to
+  install.
 - **[LlamaCag UI](https://github.com/VictorSteinbock/LlamaCagUI)** — the desktop
-  control room: chat, documents, stack health, model switching. *(Being rebuilt
-  against this v2 API — check the repo for status.)*
+  counterpart to the web UI: chat, documents, stack health, model switching.
+  *(Being rebuilt against this v2 API — check the repo for status.)*
+
+The last two are just windows onto the engine — handy, but never required; the
+API and the n8n automation are the product.
 
 Ancestry: this is a ground-up rebuild of the original
 [AbelCoplet/llama-cag-n8N](https://github.com/AbelCoplet/llama-cag-n8N), which
@@ -653,14 +906,18 @@ option instead of a science project.
 
 ## Roadmap
 
-Planned capabilities — each with a full implementation plan, from design to
-tests — live in **[docs/ROADMAP.md](docs/ROADMAP.md)**: the mechanical
-quote-grounding check that hardens the oracle, per-canon reliability scoring, an
-answer-gating pattern for support bots, structured-verdict scope fields,
-usage/cost observability, an optional PDF→Markdown preprocessor, and the larger
-deferred items (cross-document queries, multi-user). The plans are written so a
-contributor can pick one up and execute it without this context — or open an
-issue to discuss one first.
+The upgrades that make the **grounding oracle** honest and trustworthy have
+**already shipped** on this branch: the mechanical quote-grounding check
+([`POST /verify`](#the-api)), per-canon reliability
+[calibration](#know-your-canons-reliability), the
+[answer-gating pattern](#gating-a-support-bots-answers) for support bots,
+structured-verdict scope fields, usage & cost observability (`GET /stats`), an
+optional [PDF→Markdown preprocessor](#preparing-documents-pdfs-scans-tables), and
+the zero-install web UI. What remains is **deliberately deferred, design-first**
+work — cross-document queries (concat / diff / federate) and multi-user / RBAC.
+Full plans for everything, from design to tests, live in
+**[docs/ROADMAP.md](docs/ROADMAP.md)**, written so a contributor can pick one up
+without this context — or open an issue to discuss one first.
 
 ## Updating & maintenance
 
@@ -723,9 +980,10 @@ Honest answer: **almost none, and no code changes for new models.**
 ├── mcp/                    # cag-mcp: MCP server exposing the stack to Claude Code / agents
 │   ├── cag_mcp/            #   FastMCP app + tools (server.py) + cag-api client (client.py)
 │   └── tests/              #   tool tests over a MockTransport fake of cag-api
+├── integrations/           # grounding gate for agent loops: cag_gate core + Hermes plugin + OpenClaw skill
 ├── database/               # schema (documents, query_log) + n8n DB bootstrap
-├── docs/                   # PRD.md and ARCHITECTURE.md — start there for design
-├── n8n/workflows/          # 5 importable workflows: ingestion, query, maintenance, sweep, verify
+├── docs/                   # PRD + ARCHITECTURE (design), guides, use-case deck, SVG visuals
+├── n8n/workflows/          # 7 importable workflows: ingestion, query, maintenance, sweep, verify, calibrate, answer-gate
 ├── docker-compose.yml      # llama-server + cag-api + n8n + postgres
 ├── docker-compose.gpu.yml  # NVIDIA (CUDA) override
 ├── docker-compose.vulkan.yml # Intel/AMD GPU override (Linux hosts)

@@ -1,6 +1,14 @@
+import json
+
 import pytest
 
-from app.cag import CagEngine, DocumentTooLargeError, NoCachedDocumentError
+from app.cag import (
+    DEFAULT_VERDICT_SCHEMA,
+    CagEngine,
+    DocumentTooLargeError,
+    NoCachedDocumentError,
+    UnknownDocumentError,
+)
 
 DOC = "The capital of Freedonia is Fredville. " * 20
 
@@ -607,3 +615,209 @@ def test_maintenance_tolerates_cache_file_vanishing_mid_scan(engine, fake_db, tm
     assert "cache_bytes" in report
     assert report["cached_documents"] == 1
     assert vanished["done"]  # the vanish actually happened during the scan
+
+
+# --- F1/F3: verify_claim (quote-grounding + conditions) --------------------
+
+def _verdict(verdict, quote, conditions="", claim="the claim"):
+    return json.dumps(
+        {"claim": claim, "verdict": verdict, "quote": quote, "conditions": conditions}
+    )
+
+
+def test_verify_grounded_supported(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict("supported", "The capital of Freedonia is Fredville")
+
+    result = engine.verify_claim("Fredville is the capital")
+
+    assert result["verdict"] == "supported"
+    assert result["quote_grounded"] is True
+    assert result["grounding_method"] == "exact"
+    assert result["match_ratio"] == 1.0
+    assert result["conditions"] == ""
+    assert result["document"]["id"] == 1
+
+
+def test_verify_catches_fabricated_quote(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict(
+        "supported", "The capital of Freedonia is Metropolis by the sea"
+    )
+
+    result = engine.verify_claim("Metropolis is the capital")
+
+    assert result["verdict"] == "supported"  # the model claimed support...
+    assert result["quote_grounded"] is False  # ...but the quote isn't in the doc
+    assert result["match_ratio"] < 0.9
+
+
+def test_verify_absent_leaves_grounding_none(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict("absent", "")
+
+    result = engine.verify_claim("The document mentions dragons")
+
+    assert result["verdict"] == "absent"
+    assert result["quote_grounded"] is None
+    assert result["grounding_method"] == "absent"
+
+
+def test_verify_surfaces_conditions(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = _verdict(
+        "contradicted", "The capital of Freedonia is Fredville",
+        conditions="only if the item is defective",
+    )
+
+    result = engine.verify_claim("Refunds are always available")
+
+    assert result["conditions"] == "only if the item is defective"
+
+
+def test_verify_non_json_answer_yields_error_verdict(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.answer_json = "sorry, I can't do that"
+
+    result = engine.verify_claim("anything")
+
+    assert result["verdict"] == "error"
+    assert result["quote_grounded"] is None
+    assert result["match_ratio"] == 0.0
+
+
+def test_verify_reuses_query_prefix_byte_identical(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    engine.query("hi")  # a plain, schema-less query over the same document
+    baseline_system = fake_llama.last_messages[0]["content"]
+
+    fake_llama.answer_json = _verdict("supported", "The capital of Freedonia is Fredville")
+    engine.verify_claim("Fredville is the capital")
+
+    # Same document -> byte-identical system prefix (invariant 1). The schema
+    # rides in sampling; the instruction rides in the last user turn.
+    assert fake_llama.last_messages[0]["content"] == baseline_system
+    assert fake_llama.last_json_schema == DEFAULT_VERDICT_SCHEMA
+    assert fake_llama.last_messages[-1]["content"].startswith("Verify this claim strictly")
+
+
+def test_verify_unknown_document_raises(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    with pytest.raises(UnknownDocumentError):
+        engine.verify_claim("x", document_id=999)
+
+
+# --- F5: engine usage_stats wrapper applies pricing ------------------------
+
+def test_engine_usage_stats_applies_price(fake_llama, fake_db, tmp_path):
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        db_password="test", cloud_price_per_1k_input=0.002,
+    )
+    engine = CagEngine(fake_llama, fake_db, settings)
+    engine.ingest_text("facts.txt", DOC)
+    engine.query("q?")
+
+    stats = engine.usage_stats()
+
+    # Pricing lives in the engine wrapper, not the DB fake: it wraps
+    # Database.usage_stats() and multiplies all-time reused tokens by the price.
+    reused = stats["windows"]["all"]["tokens_reused"]
+    assert stats["savings"]["estimated_usd"] == round(reused / 1000 * 0.002, 4)
+    assert stats["savings"]["cloud_price_per_1k_input"] == 0.002
+
+
+# --- F4: calibrate ---------------------------------------------------------
+
+def test_calibrate_scores_and_lists_misses(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"q1": "Fredville", "q2": "wrong", "q3": "42"}
+
+    result = engine.calibrate(1, [
+        {"question": "q1", "expected": "Fredville"},
+        {"question": "q2", "expected": "Metropolis"},
+        {"question": "q3", "expected": "42"},
+    ])
+
+    assert result["n"] == 3
+    assert result["correct"] == 2
+    assert result["accuracy"] == round(2 / 3, 4)
+    assert result["misses"] == [{"question": "q2", "expected": "Metropolis", "got": "wrong"}]
+    assert result["document"]["id"] == 1
+
+
+def test_calibrate_containment_counts_correct(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"limit?": "The peak current limit is 12 A."}
+
+    result = engine.calibrate(1, [{"question": "limit?", "expected": "12 A"}])
+
+    assert result["correct"] == 1
+    assert result["misses"] == []
+
+
+def test_calibrate_strict_requires_exact(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"limit?": "The peak current limit is 12 A."}
+
+    result = engine.calibrate(1, [{"question": "limit?", "expected": "12 A"}], strict=True)
+
+    assert result["correct"] == 0  # containment doesn't count under strict
+
+
+def test_calibrate_fuzzy_tiebreak_passes_near_match(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"temp?": "thermal shutdown at 150 C"}
+
+    result = engine.calibrate(1, [{"question": "temp?", "expected": "thermal shutdown at 150C"}])
+
+    assert result["correct"] == 1  # spacing drift cleared via grounding()'s fuzzy path
+
+
+def test_calibrate_fuzzy_uses_anchored_window_semantics(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {
+        "temp?": "Per section 9, the unit enters thermal shutdown at 150 C to protect the cell."
+    }
+
+    result = engine.calibrate(1, [{"question": "temp?", "expected": "thermal shutdown at 150C"}])
+
+    # The near-match is embedded in a verbose answer: anchored-window scoring
+    # passes it where a whole-string ratio would fail.
+    assert result["correct"] == 1
+
+
+def test_calibrate_unknown_document_raises(engine, fake_llama):
+    with pytest.raises(UnknownDocumentError):
+        engine.calibrate(999, [{"question": "q", "expected": "e"}])
+    assert fake_llama.called("chat") == []  # fails before any generation
+
+
+def test_calibrate_runs_through_query_path(engine, fake_llama, fake_db):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.scripted = {"q1": "a", "q2": "b"}
+
+    engine.calibrate(1, [
+        {"question": "q1", "expected": "a"},
+        {"question": "q2", "expected": "b"},
+    ])
+
+    assert len(fake_db.queries) == 2  # one logged query per battery item
+    assert all(q["success"] is True for q in fake_db.queries)
+
+
+# --- regression: non-string quote must not crash verify (code-review find) ---
+
+def test_verify_non_string_quote_does_not_crash(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    # A schema slip yields a numeric quote; grounding() would call .strip() on an
+    # int and 500. It must be coerced to "" and the endpoint stay well-formed.
+    fake_llama.answer_json = '{"verdict":"supported","quote":42,"conditions":7}'
+
+    result = engine.verify_claim("anything")  # must not raise
+
+    assert result["quote"] == ""          # non-string coerced away
+    assert result["conditions"] == ""
+    assert result["quote_grounded"] is None  # nothing to ground

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import httpx
 
-from cag_mcp.server import ask_document, ingest_file, ingest_text, list_documents
+from cag_mcp.server import ask_document, ingest_file, ingest_text, list_documents, verify
 
 # --- list_documents --------------------------------------------------------
 
@@ -214,3 +214,77 @@ def test_ingest_file_unreachable(fake_api, tmp_path):
     f.write_text("body", encoding="utf-8")
     out = ingest_file(str(f))
     assert "llamacag.py start" in out
+
+
+# --- verify (F1b) ----------------------------------------------------------
+
+
+def test_verify_happy_path_grounded(fake_api):
+    out = verify("The peak current limit is 12 A")
+
+    assert "verdict: supported" in out
+    assert "peak at 12 A for 10 s" in out
+    assert "quote_grounded: yes" in out
+    # provenance line still present
+    line = out.strip().splitlines()[-1]
+    assert line.startswith("[") and line.endswith("]")
+    assert "cache: memory" in line
+
+
+def test_verify_catches_fabricated_quote(fake_api):
+    fake_api.verdict = "supported"
+    fake_api.quote = "the warranty covers water damage forever"
+    fake_api.quote_grounded = False
+    fake_api.grounding_method = "fuzzy"
+    fake_api.match_ratio = 0.31
+
+    out = verify("The warranty covers water damage")
+
+    # The verdict claims support, but grounding says the quote is fabricated —
+    # the load-bearing signal must be loud.
+    assert "verdict: supported" in out
+    assert "quote_grounded: NO" in out
+    assert "fabricated" in out
+
+
+def test_verify_surfaces_conditions(fake_api):
+    fake_api.verdict = "contradicted"
+    fake_api.conditions = "only if the item is defective"
+
+    out = verify("Widgets are refundable within 30 days")
+
+    assert "conditions: only if the item is defective" in out
+
+
+def test_verify_absent_is_not_grounded(fake_api):
+    fake_api.verdict = "absent"
+    fake_api.quote = ""
+    fake_api.quote_grounded = None
+    fake_api.grounding_method = "absent"
+    fake_api.match_ratio = 0.0
+
+    out = verify("The document mentions dragons")
+
+    assert "verdict: absent" in out
+    assert "quote_grounded: n/a" in out
+
+
+def test_verify_no_documents_is_guided(fake_api):
+    fake_api.set_response("POST", "/verify", httpx.Response(409, json={"detail": "nothing cached"}))
+    out = verify("anything")
+    assert "Ingest a document first" in out
+
+
+def test_verify_unknown_document_is_guided(fake_api):
+    fake_api.set_response(
+        "POST", "/verify", httpx.Response(404, json={"detail": "No document with id 99"})
+    )
+    out = verify("anything", document_id=99)
+    assert "list_documents" in out
+
+
+def test_verify_unreachable_stack(fake_api):
+    fake_api.fail_connection("POST", "/verify")
+    out = verify("anything")
+    assert "llamacag.py start" in out
+    assert "does not appear to be running" in out

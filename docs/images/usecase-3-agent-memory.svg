@@ -1,0 +1,113 @@
+<svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="u3Amber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="680" fill="#0F172A"/>
+  <ellipse cx="960" cy="330" rx="260" ry="170" fill="url(#u3Amber)"/>
+
+  <!-- header -->
+  <text x="60" y="52" font-size="13" font-weight="700" fill="#F59E0B" letter-spacing="3">USE CASE 3 OF 5 &#183; AUTONOMOUS AGENTS (OPENCLAW, HERMES, &#8230;)</text>
+  <text x="60" y="90" font-size="30" font-weight="700" fill="#E2E8F0">Stop self-improving agents from poisoning their own memory</text>
+  <text x="61" y="117" font-size="15" fill="#94A3B8">A hallucinated fact written to memory gets retrieved and reinforced forever. Rule on it first, against a canon the agent can't corrupt.</text>
+
+  <!-- agent loop (dashed boundary) -->
+  <rect x="60" y="150" width="560" height="298" rx="16" fill="#0E1626" stroke="#475569" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <text x="78" y="173" font-size="12" fill="#64748B" letter-spacing="0.3">the agent's feedback loop &#183; corruptible memory</text>
+
+  <rect x="84" y="222" width="164" height="84" rx="12" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="166" y="258" font-size="16" font-weight="700" fill="#E2E8F0" text-anchor="middle">Agent</text>
+  <text x="166" y="280" font-size="11" fill="#94A3B8" text-anchor="middle">reason &#8594; act &#8594; observe</text>
+
+  <!-- the poisoned fact travels to the gate -->
+  <line x1="248" y1="264" x2="322" y2="264" stroke="#475569" stroke-width="2"/>
+  <path d="M324 264 L315 260 L315 268 Z" fill="#475569"/>
+  <text x="286" y="248" font-size="10.5" fill="#F87171" text-anchor="middle">&#171;limit is</text>
+  <text x="286" y="284" font-size="10.5" fill="#F87171" text-anchor="middle">1000 req/s&#187;</text>
+
+  <!-- gate -->
+  <rect x="326" y="216" width="140" height="96" rx="12" fill="#14202E" stroke="#E2E8F0" stroke-width="2"/>
+  <text x="396" y="252" font-size="13.5" font-weight="700" fill="#E2E8F0" text-anchor="middle">Write-Validation</text>
+  <text x="396" y="270" font-size="13.5" font-weight="700" fill="#E2E8F0" text-anchor="middle">gate</text>
+  <text x="396" y="292" font-size="10.5" fill="#94A3B8" text-anchor="middle">verify &#8594; decide</text>
+
+  <!-- allow path to memory -->
+  <path d="M462 232 C 490 220, 508 212, 524 206" fill="none" stroke="#34D399" stroke-width="2.25"/>
+  <path d="M527 205 L518 202 L521 211 Z" fill="#34D399"/>
+  <text x="508" y="192" font-size="10.5" font-weight="600" fill="#34D399" text-anchor="end">supported + grounded</text>
+
+  <path d="M511 158 v40 a49 10 0 0 0 98 0 v-40" fill="#12261E" stroke="#34D399" stroke-width="1.5"/>
+  <ellipse cx="560" cy="158" rx="49" ry="10" fill="#163227" stroke="#34D399" stroke-width="1.5"/>
+  <text x="560" y="180" font-size="11" font-weight="700" fill="#34D399" text-anchor="middle">verified memory</text>
+  <text x="560" y="196" font-size="9.5" fill="#A9D9C6" text-anchor="middle">MEMORY.md &#183; skills</text>
+
+  <!-- quarantine path -->
+  <path d="M448 312 C 472 338, 492 356, 512 368" fill="none" stroke="#F87171" stroke-width="2.25"/>
+  <path d="M515 370 L505 366 L510 377 Z" fill="#F87171"/>
+  <text x="428" y="344" font-size="11" fill="#F87171">contradicted / absent /</text>
+  <text x="428" y="360" font-size="11" fill="#F87171">fabricated quote</text>
+
+  <rect x="510" y="358" width="98" height="66" rx="10" fill="#1B1416" stroke="#F87171" stroke-width="1.5"/>
+  <text x="559" y="386" font-size="12" font-weight="700" fill="#F87171" text-anchor="middle">quarantine</text>
+  <text x="559" y="404" font-size="9.5" fill="#CBB6B7" text-anchor="middle">never a fact</text>
+
+  <!-- gate <-> oracle across the boundary -->
+  <line x1="466" y1="264" x2="716" y2="264" stroke="#F59E0B" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M718 264 L709 260 L710 269 Z" fill="#F59E0B"/>
+  <path d="M464 264 L473 260 L472 269 Z" fill="#F59E0B"/>
+  <text x="592" y="250" font-size="11.5" fill="#F59E0B" text-anchor="middle">POST /verify &#183; verdict</text>
+
+  <!-- oracle + canon, outside the loop -->
+  <rect x="720" y="222" width="250" height="84" rx="12" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="845" y="254" font-size="15" font-weight="700" fill="#E2E8F0" text-anchor="middle">cag-api <tspan fill="#22D3EE">/verify</tspan></text>
+  <text x="845" y="276" font-size="11" fill="#94A3B8" text-anchor="middle">temp 0 &#183; quote byte-checked</text>
+
+  <line x1="845" y1="306" x2="845" y2="352" stroke="#F59E0B" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M845 354 L840 345 L850 345 Z" fill="#F59E0B"/>
+
+  <path d="M770 356 v56 a75 13 0 0 0 150 0 v-56" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+  <ellipse cx="845" cy="356" rx="75" ry="13" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+  <text x="845" y="388" font-size="14" font-weight="700" fill="#F59E0B" text-anchor="middle">Canon</text>
+  <text x="845" y="406" font-size="11" fill="#D9A441" text-anchor="middle">pinned KV cache</text>
+  <text x="845" y="446" font-size="11" fill="#94A3B8" text-anchor="middle">outside the loop &#8212; can't be poisoned</text>
+
+  <!-- the ruling, spelled out -->
+  <rect x="1000" y="222" width="140" height="190" rx="12" fill="#0E1626" stroke="#334155" stroke-width="1.25"/>
+  <text x="1070" y="248" font-size="10.5" fill="#64748B" text-anchor="middle">THE RULING</text>
+  <text x="1070" y="274" font-size="11.5" fill="#F87171" text-anchor="middle">contradicted</text>
+  <text x="1070" y="298" font-size="10" fill="#94A3B8" text-anchor="middle">&#171;capped at</text>
+  <text x="1070" y="314" font-size="10" fill="#94A3B8" text-anchor="middle">100/s (&#167;4.2)&#187;</text>
+  <text x="1070" y="340" font-size="10.5" fill="#34D399" text-anchor="middle">quote_grounded:</text>
+  <text x="1070" y="356" font-size="10.5" fill="#34D399" text-anchor="middle">true</text>
+  <text x="1070" y="384" font-size="10" fill="#CBB6B7" text-anchor="middle">the poison never</text>
+  <text x="1070" y="400" font-size="10" fill="#CBB6B7" text-anchor="middle">becomes a memory</text>
+
+  <!-- bottom band -->
+  <rect x="60" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="82" y="506" font-size="12" font-weight="700" fill="#34D399" letter-spacing="2">WHY IT HOLDS</text>
+  <text x="82" y="530" font-size="12.5" fill="#94A3B8">&#183; the canon lives outside agent memory &#8212;</text>
+  <text x="82" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;the agent's drift can't touch it</text>
+  <text x="82" y="568" font-size="12.5" fill="#94A3B8">&#183; fail-closed: only supported + grounded</text>
+  <text x="82" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;is ever trusted (this exact trace is a test)</text>
+
+  <rect x="424" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="446" y="506" font-size="12" font-weight="700" fill="#F87171" letter-spacing="2">THE HONEST LIMIT</text>
+  <text x="446" y="530" font-size="12.5" fill="#94A3B8">&#183; absent can't be hardened &#8212; quarantined,</text>
+  <text x="446" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;never auto-trusted</text>
+  <text x="446" y="568" font-size="12.5" fill="#94A3B8">&#183; enforces YOUR canon, not universal truth</text>
+  <text x="446" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;&#8212; calibrate it before you rely on it</text>
+
+  <rect x="788" y="478" width="352" height="150" rx="12" fill="#0E1626" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="810" y="506" font-size="12" font-weight="700" fill="#22D3EE" letter-spacing="2">WHAT YOU NEED</text>
+  <text x="810" y="530" font-size="12.5" fill="#94A3B8">&#183; pip install ./integrations &#8212; stdlib-only</text>
+  <text x="810" y="549" font-size="12.5" fill="#94A3B8">&#160;&#160;gate, tested without any services</text>
+  <text x="810" y="568" font-size="12.5" fill="#94A3B8">&#183; the Hermes plugin or OpenClaw skill &#8212;</text>
+  <text x="810" y="587" font-size="12.5" fill="#94A3B8">&#160;&#160;or plain POST /verify from any runtime</text>
+
+  <!-- footer -->
+  <text x="60" y="662" font-size="11.5" fill="#475569">docs/USE-CASES.md &#8212; the five-page tour &#183; deep dive: docs/AGENTS.md</text>
+  <text x="1140" y="662" font-size="12" fill="#64748B" text-anchor="end">llama-cag &#183; read once, ask forever &#183; 3 / 5</text>
+</svg>

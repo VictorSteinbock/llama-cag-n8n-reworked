@@ -1,0 +1,141 @@
+<svg viewBox="0 0 1200 656" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="fitGlowGreen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#34D399" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#34D399" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="fitGlowRed" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F87171" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F87171" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1200" height="656" fill="#0F172A"/>
+  <ellipse cx="300" cy="280" rx="360" ry="180" fill="url(#fitGlowGreen)"/>
+  <ellipse cx="900" cy="280" rx="360" ry="180" fill="url(#fitGlowRed)"/>
+
+  <!-- title -->
+  <text x="60" y="52" font-size="31" font-weight="700" fill="#E2E8F0">Is this for you?</text>
+  <text x="61" y="82" font-size="16.5" fill="#94A3B8">The mechanism is generic &#8212; but it pays off hardest in one shape of problem.</text>
+
+  <!-- ==================== LEFT CARD: GREAT FIT ==================== -->
+  <rect x="40" y="104" width="555" height="340" rx="16" fill="#131E1A" stroke="#2F6B52" stroke-width="1.5"/>
+  <text x="68" y="150" font-size="21" font-weight="700" fill="#34D399">Great fit<tspan font-size="15" font-weight="500" fill="#64748B">  &#8212;  the sweet spot</tspan></text>
+
+  <!-- row 0 -->
+  <g>
+    <circle cx="70" cy="201" r="12" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <path d="M65.5 201 L68.5 204.5 L75.5 196" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="196" font-size="16.5" font-weight="600" fill="#E2E8F0">Many questions, one steady document</text>
+  <text x="96" y="216" font-size="13.5" fill="#94A3B8">a manual, contract, spec or rulebook, asked for weeks</text>
+
+  <!-- row 1 -->
+  <g>
+    <circle cx="70" cy="251" r="12" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <path d="M65.5 251 L68.5 254.5 L75.5 246" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="246" font-size="16.5" font-weight="600" fill="#E2E8F0">Answers must stay private</text>
+  <text x="96" y="266" font-size="13.5" fill="#94A3B8">100% local &#8212; no document ever leaves your machine</text>
+
+  <!-- row 2 -->
+  <g>
+    <circle cx="70" cy="301" r="12" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <path d="M65.5 301 L68.5 304.5 L75.5 296" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="296" font-size="16.5" font-weight="600" fill="#E2E8F0">You want grounded, checkable answers</text>
+  <text x="96" y="316" font-size="13.5" fill="#94A3B8">sees the whole doc; the oracle quotes its source</text>
+
+  <!-- row 3 -->
+  <g>
+    <circle cx="70" cy="351" r="12" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <path d="M65.5 351 L68.5 354.5 L75.5 346" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="346" font-size="16.5" font-weight="600" fill="#E2E8F0">A bot or automation does the asking</text>
+  <text x="96" y="366" font-size="13.5" fill="#94A3B8">one webhook or MCP call &#8212; no vector DB, no glue</text>
+
+  <!-- row 4 -->
+  <g>
+    <circle cx="70" cy="401" r="12" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+    <path d="M65.5 401 L68.5 404.5 L75.5 396" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="96" y="396" font-size="16.5" font-weight="600" fill="#E2E8F0">A coding agent needs a pinned spec</text>
+  <text x="96" y="416" font-size="13.5" fill="#94A3B8">MCP sidecar; the spec never fills its context window</text>
+
+  <!-- ==================== RIGHT CARD: USE ANOTHER TOOL ==================== -->
+  <rect x="605" y="104" width="555" height="340" rx="16" fill="#1E1518" stroke="#7F3536" stroke-width="1.5"/>
+  <text x="633" y="150" font-size="21" font-weight="700" fill="#F87171">Use another tool<tspan font-size="15" font-weight="500" fill="#64748B">  &#8212;  wrong shape here</tspan></text>
+
+  <!-- row 0 -->
+  <g>
+    <circle cx="635" cy="201" r="12" fill="#241619" stroke="#F87171" stroke-width="1.75"/>
+    <path d="M631 197 L639 205 M639 197 L631 205" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <text x="661" y="196" font-size="16.5" font-weight="600" fill="#E2E8F0">Thousands of documents</text>
+  <text x="661" y="216" font-size="13.5" fill="#94A3B8">that's retrieval (RAG) territory &#8212; a different repo</text>
+
+  <!-- row 1 -->
+  <g>
+    <circle cx="635" cy="251" r="12" fill="#241619" stroke="#F87171" stroke-width="1.75"/>
+    <path d="M631 247 L639 255 M639 247 L631 255" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <text x="661" y="246" font-size="16.5" font-weight="600" fill="#E2E8F0">A document too big to fit</text>
+  <text x="661" y="266" font-size="13.5" fill="#94A3B8">must fit whole; about 100k tokens on the default model</text>
+
+  <!-- row 2 -->
+  <g>
+    <circle cx="635" cy="301" r="12" fill="#241619" stroke="#F87171" stroke-width="1.75"/>
+    <path d="M631 297 L639 305 M639 297 L631 305" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <text x="661" y="296" font-size="16.5" font-weight="600" fill="#E2E8F0">Multi-user logins and roles</text>
+  <text x="661" y="316" font-size="13.5" fill="#94A3B8">unauthenticated by design; loopback is the line (F8 later)</text>
+
+  <!-- row 3 -->
+  <g>
+    <circle cx="635" cy="351" r="12" fill="#241619" stroke="#F87171" stroke-width="1.75"/>
+    <path d="M631 347 L639 355 M639 347 L631 355" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <text x="661" y="346" font-size="16.5" font-weight="600" fill="#E2E8F0">Ask each document once, then move on</text>
+  <text x="661" y="366" font-size="13.5" fill="#94A3B8">the one-time read only pays back if you return to it</text>
+
+  <!-- row 4 -->
+  <g>
+    <circle cx="635" cy="401" r="12" fill="#241619" stroke="#F87171" stroke-width="1.75"/>
+    <path d="M631 397 L639 405 M639 397 L631 405" fill="none" stroke="#F87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+  <text x="661" y="396" font-size="16.5" font-weight="600" fill="#E2E8F0">Cross-document questions</text>
+  <text x="661" y="416" font-size="13.5" fill="#94A3B8">one canon per query today (F7 is deferred)</text>
+
+  <!-- ==================== BOTTOM BAND: OPERATING REALITIES ==================== -->
+  <rect x="40" y="464" width="1120" height="168" rx="16" fill="#1C1710" stroke="#7A5A1E" stroke-width="1.5"/>
+  <text x="68" y="500" font-size="20" font-weight="700" fill="#F59E0B">Operating realities<tspan font-size="15" font-weight="500" fill="#64748B">  &#8212;  true even in the sweet spot</tspan></text>
+
+  <!-- chip 0 -->
+  <rect x="62" y="516" width="262" height="100" rx="10" fill="#0F172A" stroke="#4A3C1E" stroke-width="1.25"/>
+  <circle cx="84" cy="548" r="4.5" fill="#F59E0B"/>
+  <text x="102" y="552" font-size="15" font-weight="700" fill="#E2E8F0">Warm once per doc</text>
+  <text x="102" y="574" font-size="12.5" fill="#94A3B8">minutes on CPU, one time &#8212;</text>
+  <text x="102" y="592" font-size="12.5" fill="#94A3B8">then every question is seconds</text>
+
+  <!-- chip 1 -->
+  <rect x="340" y="516" width="262" height="100" rx="10" fill="#0F172A" stroke="#4A3C1E" stroke-width="1.25"/>
+  <circle cx="362" cy="548" r="4.5" fill="#F59E0B"/>
+  <text x="380" y="552" font-size="15" font-weight="700" fill="#E2E8F0">Text is the input</text>
+  <text x="380" y="574" font-size="12.5" fill="#94A3B8">scanned or chart PDFs need</text>
+  <text x="380" y="592" font-size="12.5" fill="#94A3B8">a prepare pass before ingest</text>
+
+  <!-- chip 2 -->
+  <rect x="618" y="516" width="262" height="100" rx="10" fill="#0F172A" stroke="#4A3C1E" stroke-width="1.25"/>
+  <circle cx="640" cy="548" r="4.5" fill="#F59E0B"/>
+  <text x="658" y="552" font-size="15" font-weight="700" fill="#E2E8F0">Local &amp; unauthenticated</text>
+  <text x="658" y="574" font-size="12.5" fill="#94A3B8">loopback is the boundary &#8212;</text>
+  <text x="658" y="592" font-size="12.5" fill="#94A3B8">don't expose the port raw</text>
+
+  <!-- chip 3 -->
+  <rect x="896" y="516" width="262" height="100" rx="10" fill="#0F172A" stroke="#4A3C1E" stroke-width="1.25"/>
+  <circle cx="918" cy="548" r="4.5" fill="#F59E0B"/>
+  <text x="936" y="552" font-size="15" font-weight="700" fill="#E2E8F0">Sized to your RAM</text>
+  <text x="936" y="574" font-size="12.5" fill="#94A3B8">one KV pool from the context</text>
+  <text x="936" y="592" font-size="12.5" fill="#94A3B8">setting; more ctx = more RAM</text>
+</svg>

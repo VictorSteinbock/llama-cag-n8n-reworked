@@ -1,0 +1,93 @@
+<svg viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <defs>
+    <radialGradient id="ggAmber" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ggCyan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="600" fill="#0F172A"/>
+  <ellipse cx="950" cy="300" rx="260" ry="150" fill="url(#ggCyan)"/>
+  <ellipse cx="950" cy="470" rx="220" ry="130" fill="url(#ggAmber)"/>
+
+  <!-- title -->
+  <text x="60" y="50" font-size="29" font-weight="700" fill="#E2E8F0">The grounding gate in the agent loop</text>
+  <text x="61" y="78" font-size="15.5" fill="#94A3B8">A hallucinated fact is checked against an immutable canon before it can enter memory.</text>
+
+  <!-- ===== the agent's feedback loop (dashed boundary) ===== -->
+  <rect x="40" y="118" width="680" height="460" rx="18" fill="#0E1626" stroke="#475569" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <text x="58" y="141" font-size="12.5" fill="#64748B" letter-spacing="0.3">the agent's feedback loop  ·  corruptible memory</text>
+
+  <!-- read-grounding bracket (cyan, dashed) -->
+  <path d="M181 250 V158 H950 V244" fill="none" stroke="#22D3EE" stroke-width="1.75" stroke-dasharray="6 5"/>
+  <path d="M950 251 L945 242 L955 242 Z" fill="#22D3EE"/>
+  <text x="545" y="150" font-size="12.5" fill="#22D3EE" text-anchor="middle">ask_document &#8212; read-grounding (query the whole canon, no RAG)</text>
+
+  <!-- agent -->
+  <rect x="76" y="250" width="210" height="110" rx="14" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="181" y="298" font-size="22" font-weight="700" fill="#E2E8F0" text-anchor="middle">Agent</text>
+  <text x="181" y="326" font-size="13" fill="#94A3B8" text-anchor="middle">Reason &#8594; Act &#8594; Observe</text>
+
+  <!-- arrow: agent -> gate -->
+  <line x1="286" y1="321" x2="345" y2="323" stroke="#475569" stroke-width="2" stroke-linecap="round"/>
+  <path d="M347 323 L339 319 L339 327 Z" fill="#475569"/>
+  <text x="316" y="311" font-size="11.5" fill="#94A3B8" text-anchor="middle">new fact</text>
+
+  <!-- write-validation gate -->
+  <rect x="352" y="266" width="150" height="120" rx="14" fill="#14202E" stroke="#E2E8F0" stroke-width="2"/>
+  <text x="427" y="308" font-size="15" font-weight="700" fill="#E2E8F0" text-anchor="middle">Write-Validation</text>
+  <text x="427" y="328" font-size="15" font-weight="700" fill="#E2E8F0" text-anchor="middle">gate</text>
+  <text x="427" y="352" font-size="12" fill="#94A3B8" text-anchor="middle">verify &#8594; decide</text>
+
+  <!-- arrow: gate <-> oracle (verify / verdict), dashed amber, crosses the boundary -->
+  <line x1="506" y1="315" x2="796" y2="300" stroke="#F59E0B" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M798 300 L789 296 L790 305 Z" fill="#F59E0B"/>
+  <path d="M504 315 L513 311 L512 320 Z" fill="#F59E0B"/>
+  <text x="650" y="293" font-size="12" fill="#F59E0B" text-anchor="middle">POST /verify  &#183;  verdict</text>
+
+  <!-- arrow: gate -> verified memory (green, allow) -->
+  <path d="M498 286 C 535 270, 560 258, 583 252" fill="none" stroke="#34D399" stroke-width="2.25"/>
+  <path d="M586 251 L577 248 L580 257 Z" fill="#34D399"/>
+  <text x="560" y="252" font-size="11.5" font-weight="600" fill="#34D399" text-anchor="end">supported + grounded</text>
+
+  <!-- verified memory (green cylinder) -->
+  <path d="M569 196 v54 a66 13 0 0 0 132 0 v-54" fill="#12261E" stroke="#34D399" stroke-width="1.75"/>
+  <ellipse cx="635" cy="196" rx="66" ry="13" fill="#163227" stroke="#34D399" stroke-width="1.75"/>
+  <text x="635" y="218" font-size="13.5" font-weight="700" fill="#34D399" text-anchor="middle">Verified memory</text>
+  <text x="635" y="237" font-size="11.5" fill="#A9D9C6" text-anchor="middle">MEMORY.md &#183; skills</text>
+
+  <!-- arrow: gate -> quarantine (red) -->
+  <path d="M492 384 C 515 410, 532 428, 553 442" fill="none" stroke="#F87171" stroke-width="2.25"/>
+  <path d="M556 444 L546 440 L551 451 Z" fill="#F87171"/>
+  <text x="452" y="410" font-size="11.5" fill="#F87171">contradicted / absent /</text>
+  <text x="452" y="425" font-size="11.5" fill="#F87171">fabricated quote</text>
+
+  <!-- quarantine (red box) -->
+  <rect x="545" y="432" width="170" height="92" rx="12" fill="#1B1416" stroke="#F87171" stroke-width="1.75"/>
+  <text x="630" y="472" font-size="15" font-weight="700" fill="#F87171" text-anchor="middle">Quarantine</text>
+  <text x="630" y="494" font-size="12" fill="#CBB6B7" text-anchor="middle">unverified &#183; not a fact</text>
+
+  <!-- ===== outside the loop: the oracle + the canon ===== -->
+  <!-- oracle -->
+  <rect x="800" y="250" width="300" height="96" rx="14" fill="#1E293B" stroke="#22D3EE" stroke-width="1.75"/>
+  <text x="950" y="286" font-size="18" font-weight="700" fill="#E2E8F0" text-anchor="middle">cag-api <tspan fill="#22D3EE">/verify</tspan></text>
+  <text x="950" y="310" font-size="12.5" fill="#94A3B8" text-anchor="middle">reproducible &#183; quote-checked</text>
+  <text x="950" y="329" font-size="11" fill="#64748B" text-anchor="middle">(temperature 0)</text>
+
+  <!-- arrow: oracle <-> canon -->
+  <line x1="950" y1="348" x2="950" y2="411" stroke="#F59E0B" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M950 413 L945 404 L955 404 Z" fill="#F59E0B"/>
+  <path d="M950 346 L945 355 L955 355 Z" fill="#F59E0B"/>
+  <text x="966" y="385" font-size="11" fill="#64748B">reads the source</text>
+
+  <!-- canon (amber cylinder = pinned KV cache, outside the loop) -->
+  <path d="M866 415 v76 a84 15 0 0 0 168 0 v-76" fill="#2A2114" stroke="#F59E0B" stroke-width="2"/>
+  <ellipse cx="950" cy="415" rx="84" ry="15" fill="#3A2C15" stroke="#F59E0B" stroke-width="2"/>
+  <text x="950" y="452" font-size="16" font-weight="700" fill="#F59E0B" text-anchor="middle">Canon</text>
+  <text x="950" y="473" font-size="12.5" fill="#D9A441" text-anchor="middle">pinned KV cache</text>
+  <text x="950" y="556" font-size="13" fill="#94A3B8" text-anchor="middle">immutable &#8212; outside the loop, can't be poisoned</text>
+</svg>

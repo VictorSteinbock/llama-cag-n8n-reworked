@@ -1,0 +1,111 @@
+{
+  "name": "CAG Calibration",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CAG Calibration\n\nScore a known-answer Q/A battery against ONE document to measure how reliable the oracle is on *that* canon under *this* model — the escalation rate to expect before you trust it.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/calibrate \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"document_id\": 7,\n        \"strict\": false,\n        \"qa\": [\n          { \"question\": \"What is the peak current limit?\", \"expected\": \"12 A\" },\n          { \"question\": \"When does thermal shutdown trigger?\", \"expected\": \"150 C\" }\n        ]\n      }'\n```\n\nThe response is `{document, n, correct, accuracy, strict, misses}`. `accuracy` ≈ 1 − the expected absent-miss rate for that battery; `misses` lists each wrong answer with what the model said. Ground truth is caller-supplied — this measures this canon under this model, not the model in general.\n\nNo credentials needed — cag-api does all the work.",
+        "height": 520,
+        "width": 460
+      },
+      "id": "b7d2f3a1-0000-4000-8000-000000000001",
+      "name": "How to use",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-320, -220]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cag/calibrate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b7d2f3a1-0000-4000-8000-000000000002",
+      "name": "Calibrate Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "webhookId": "a4c1e2d8-6f3b-4e7a-9c2d-1b3e5f7a9c0d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://cag-api:8000/documents/{{ $json.body.document_id }}/calibrate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ qa: $json.body.qa, strict: $json.body.strict }) }}",
+        "options": {
+          "timeout": 3600000
+        }
+      },
+      "id": "b7d2f3a1-0000-4000-8000-000000000003",
+      "name": "Calibrate CAG API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "b7d2f3a1-0000-4000-8000-000000000004",
+      "name": "Respond With Score",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [720, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error?.message ?? $json.error ?? 'CAG API request failed' }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "b7d2f3a1-0000-4000-8000-000000000005",
+      "name": "Respond With Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [720, 120]
+    }
+  ],
+  "connections": {
+    "Calibrate Webhook": {
+      "main": [
+        [
+          {
+            "node": "Calibrate CAG API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calibrate CAG API": {
+      "main": [
+        [
+          {
+            "node": "Respond With Score",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond With Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false
+}

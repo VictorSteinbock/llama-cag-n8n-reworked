@@ -93,3 +93,45 @@ def test_log_query_null_document_fk_violation_is_not_swallowed():
         pass
     else:  # pragma: no cover - guard
         raise AssertionError("expected ForeignKeyViolation to propagate")
+
+
+# --- F5: usage_stats -------------------------------------------------------
+
+def test_usage_stats_shapes_three_windows_and_reuse_ratio():
+    db = _db()
+
+    def one(sql, params=()):
+        return {"queries": 5, "failed": 0, "tokens_reused": 900,
+                "tokens_evaluated": 100, "avg_eval_tokens": 20.0,
+                "p50_duration_ms": 10, "p95_duration_ms": 30}
+
+    db._one = one
+    result = db.usage_stats()
+
+    assert set(result) == {"24h", "7d", "all"}
+    for window in result.values():
+        assert window["reuse_ratio"] == 0.9  # 900 / (900 + 100)
+
+
+def test_usage_stats_reuse_ratio_zero_when_no_tokens():
+    db = _db()
+    db._one = lambda sql, params=(): {"tokens_reused": 0, "tokens_evaluated": 0}
+
+    result = db.usage_stats()
+
+    assert result["all"]["reuse_ratio"] == 0.0  # no ZeroDivisionError
+
+
+def test_usage_stats_binds_interval_twice_and_never_concatenates():
+    db = _db()
+    seen: list[tuple] = []
+
+    def one(sql, params=()):
+        seen.append(params)
+        return {"tokens_reused": 0, "tokens_evaluated": 0}
+
+    db._one = one
+    db.usage_stats()
+
+    # Interval bound (not concatenated), passed twice; None for the all-time window.
+    assert seen == [("24 hours", "24 hours"), ("7 days", "7 days"), (None, None)]

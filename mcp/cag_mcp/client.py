@@ -82,6 +82,12 @@ class CagClient:
             payload["json_schema"] = json_schema
         return self._request("POST", "/query", json=payload)
 
+    def verify(self, claim: str, *, document_id: int | None = None) -> dict:
+        payload: dict[str, object] = {"claim": claim}
+        if document_id is not None:
+            payload["document_id"] = document_id
+        return self._request("POST", "/verify", json=payload)
+
     def ingest_text(self, file_name: str, text: str) -> dict:
         return self._request(
             "POST", "/documents/text", json={"file_name": file_name, "text": text}

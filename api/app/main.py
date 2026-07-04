@@ -2,10 +2,12 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -47,6 +49,23 @@ class QueryRequest(BaseModel):
     # sampling only — the cached document prefix is untouched. A non-object
     # (e.g. a string) is rejected with 422 by the dict typing.
     json_schema: dict | None = None
+
+
+class VerifyRequest(BaseModel):
+    claim: str = Field(min_length=1)
+    document_id: int | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+
+
+class CalibrateItem(BaseModel):
+    question: str = Field(min_length=1)
+    expected: str = Field(min_length=1)
+
+
+class CalibrateRequest(BaseModel):
+    qa: list[CalibrateItem] = Field(min_length=1)  # cap enforced in the route
+    strict: bool = False
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
 
 
 def create_app(engine: CagEngine | None = None) -> FastAPI:
@@ -122,6 +141,9 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
                 "DELETE /documents/{id}",
                 "POST /query {question, document_id?, max_tokens?, temperature?, history?, "
                 "json_schema?}",
+                "POST /verify {claim, document_id?, max_tokens?}",
+                "POST /documents/{id}/calibrate {qa:[{question, expected}], strict?, max_tokens?}",
+                "GET /stats",
                 "POST /maintenance",
             ],
         }
@@ -176,9 +198,49 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
             json_schema=body.json_schema,
         )
 
+    @app.post("/verify")
+    def verify(request: Request, body: VerifyRequest):
+        return _engine(request).verify_claim(
+            body.claim, document_id=body.document_id, max_tokens=body.max_tokens
+        )
+
+    @app.post("/documents/{document_id}/calibrate")
+    def calibrate(request: Request, document_id: int, body: CalibrateRequest):
+        engine = _engine(request)
+        cap = engine.settings.calibrate_max_items
+        if len(body.qa) > cap:
+            # Enforced here (not only via Pydantic) so the message can name the knob,
+            # mirroring the upload-cap 413 pattern.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": (
+                        f"Calibration battery has {len(body.qa)} items but the cap is {cap}. "
+                        "Raise CALIBRATE_MAX_ITEMS or split the battery."
+                    )
+                },
+            )
+        return engine.calibrate(
+            document_id, [item.model_dump() for item in body.qa],
+            strict=body.strict, max_tokens=body.max_tokens,
+        )
+
+    @app.get("/stats")
+    def stats(request: Request):
+        return _engine(request).usage_stats()
+
     @app.post("/maintenance")
     def maintenance(request: Request):
         return _engine(request).maintenance()
+
+    # Zero-install web UI (F9): a static SPA mounted at a sub-path, registered
+    # AFTER the JSON routes so it never shadows them. The .is_dir() guard keeps
+    # the app importable if the asset is absent (a partial checkout just skips
+    # the mount); WEBUI_ENABLED can turn it off entirely.
+    webui_dir = Path(__file__).parent / "webui"
+    webui_on = engine.settings.webui_enabled if engine is not None else Settings().webui_enabled
+    if webui_dir.is_dir() and webui_on:
+        app.mount("/ui", StaticFiles(directory=webui_dir, html=True), name="webui")
 
     return app
 

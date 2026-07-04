@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## CAG Claim Verification\n\nVerify a list of claims against ONE warm document. Each claim is checked with `temperature: 0` and a `json_schema`, so every verdict comes back as strict JSON — `supported`, `absent`, or `contradicted`, with the exact passage. The document is read once (already cached); each claim only costs its own tokens.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/verify \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"document_id\": 7,\n        \"claims\": [\n          \"The peak current limit is 12 A.\",\n          \"Thermal shutdown triggers at 150 C.\",\n          \"The warranty covers water damage.\"\n        ]\n      }'\n```\n\n`document_id` is optional — omit it to verify against the most recently cached document.\nThe response is an array of `{claim, verdict, quote, cache_source, error}`.\nOne failing claim is captured (error branch) and does not abort the batch.\n\nThis is the productized critique loop: a drafting agent (Claude Code, or anything) posts its claims here, reads the verdicts, and refines before shipping.\n\nNo credentials needed — cag-api does all the work.",
+        "content": "## CAG Claim Verification\n\nVerify a list of claims against ONE warm document. Each claim is checked by cag-api's `/verify` endpoint at `temperature: 0` — the verdict comes back as strict JSON (`supported`, `absent`, or `contradicted`) AND cag-api mechanically grounds the returned quote against the source bytes, so a fabricated citation is caught (`quote_grounded: false`) with no extra LLM call. The document is read once (already cached); each claim only costs its own tokens.\n\n```\ncurl -X POST http://localhost:5678/webhook/cag/verify \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n        \"document_id\": 7,\n        \"claims\": [\n          \"The peak current limit is 12 A.\",\n          \"Thermal shutdown triggers at 150 C.\",\n          \"The warranty covers water damage.\"\n        ]\n      }'\n```\n\n`document_id` is optional — omit it to verify against the most recently cached document.\nThe response is an array of `{claim, verdict, quote, conditions, quote_grounded, match_ratio, cache_source, error}`.\nOne failing claim is captured (error branch) and does not abort the batch.\n\nThis is the productized critique loop: a drafting agent (Claude Code, or anything) posts its claims here, reads the verdicts, and refines before shipping.\n\nNo credentials needed — cag-api does all the work.",
         "height": 540,
         "width": 460
       },
@@ -44,10 +44,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://cag-api:8000/query",
+        "url": "http://cag-api:8000/verify",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ question: 'Verify this claim strictly against the document: \"' + $json.claim + '\". Respond with your verdict and the exact supporting or contradicting passage.', temperature: 0, document_id: $json.body.document_id, json_schema: { type: 'object', properties: { claim: { type: 'string' }, verdict: { enum: ['supported', 'absent', 'contradicted'] }, quote: { type: 'string' } }, required: ['claim', 'verdict', 'quote'] } }) }}",
+        "jsonBody": "={{ JSON.stringify({ claim: $json.claim, document_id: $json.body.document_id }) }}",
         "options": {
           "timeout": 3600000
         }
@@ -66,20 +66,38 @@
             {
               "id": "verify-ok-1",
               "name": "claim",
-              "value": "={{ $('Split Claims').item.json.claim }}",
+              "value": "={{ $json.claim }}",
               "type": "string"
             },
             {
               "id": "verify-ok-2",
               "name": "verdict",
-              "value": "={{ (() => { try { return JSON.parse($json.answer).verdict } catch (e) { return null } })() }}",
+              "value": "={{ $json.verdict }}",
               "type": "string"
             },
             {
               "id": "verify-ok-3",
               "name": "quote",
-              "value": "={{ (() => { try { return JSON.parse($json.answer).quote } catch (e) { return null } })() }}",
+              "value": "={{ $json.quote }}",
               "type": "string"
+            },
+            {
+              "id": "verify-ok-6",
+              "name": "conditions",
+              "value": "={{ $json.conditions }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-ok-7",
+              "name": "quote_grounded",
+              "value": "={{ $json.quote_grounded }}",
+              "type": "boolean"
+            },
+            {
+              "id": "verify-ok-8",
+              "name": "match_ratio",
+              "value": "={{ $json.match_ratio }}",
+              "type": "number"
             },
             {
               "id": "verify-ok-4",
@@ -126,6 +144,24 @@
               "type": "string"
             },
             {
+              "id": "verify-err-6",
+              "name": "conditions",
+              "value": "={{ null }}",
+              "type": "string"
+            },
+            {
+              "id": "verify-err-7",
+              "name": "quote_grounded",
+              "value": "={{ null }}",
+              "type": "boolean"
+            },
+            {
+              "id": "verify-err-8",
+              "name": "match_ratio",
+              "value": "={{ null }}",
+              "type": "number"
+            },
+            {
               "id": "verify-err-4",
               "name": "cache_source",
               "value": "={{ null }}",
@@ -160,6 +196,15 @@
             },
             {
               "fieldToAggregate": "quote"
+            },
+            {
+              "fieldToAggregate": "conditions"
+            },
+            {
+              "fieldToAggregate": "quote_grounded"
+            },
+            {
+              "fieldToAggregate": "match_ratio"
             },
             {
               "fieldToAggregate": "cache_source"

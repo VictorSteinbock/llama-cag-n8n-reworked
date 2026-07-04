@@ -34,11 +34,12 @@ only ever does the reading once.
 ## Who lives on your computer
 
 When you start the system, five characters wake up. Four live inside Docker
-(think: a tidy apartment building for programs), one is a normal desktop app:
+(think: a tidy apartment building for programs); the fifth is an optional screen
+you can open if you feel like it — a built-in web page, or a desktop app:
 
 ```mermaid
 flowchart LR
-    YOU(("🧑 You")) --> UI["🖥️ The Remote Control<br/>(LlamaCag UI — desktop app)"]
+    YOU(("🧑 You")) --> UI["🖥️ The Remote Control (optional)<br/>(a web page or a desktop app)"]
     YOU --> DROP[("📁 A folder you drop<br/>files into")]
     subgraph docker["🏢 The Docker building (all on your machine)"]
         N8N["🤖 The Assistant (n8n)<br/>watches the folder, answers the phone,<br/>tidies up at night"]
@@ -61,8 +62,13 @@ flowchart LR
   call, and runs a nightly cleanup.
 - **The Filing Cabinet** just keeps records — which documents exist, every
   question and answer.
-- **The Remote Control** is the friendly desktop app: chat with a document, see
-  what's stored, check that everything is healthy, switch the AI model.
+- **The Remote Control** is optional — a friendly screen for when you'd rather
+  click than type: chat with a document, see what's stored, check everything is
+  healthy, switch the AI model. It comes in two overlapping forms: a **built-in
+  web page** (open `localhost:8000/ui` in a browser — nothing to install) and a
+  separate **desktop app** (LlamaCag UI). You don't need either — you can just
+  drop files in the folder and ask through the Assistant — they're only windows
+  onto what's already happening.
 
 None of them ever talk to the internet while working. Your documents,
 questions, and answers never leave your machine.
@@ -82,6 +88,10 @@ receipt showing it only had to process your question, not the book.
 
 ## Is this for me?
 
+<p align="center">
+  <img src="images/is-this-for-you.svg" alt="A fit map. Great fit: many questions against one steady document; answers that must stay private; grounded, checkable answers; a bot or automation asking; a coding agent needing a pinned spec. Use another tool for: thousands of documents; a document too big to fit; multi-user logins; asking each document once; cross-document questions. Operating realities: warm once per document, text is the input, local and unauthenticated, sized to your RAM." width="100%">
+</p>
+
 **Yes, if:** you have a handful of dense documents — a product manual, a
 contract, a rulebook, a thesis — and you (or a chatbot, or an automation, or a
 coding assistant) will ask them many questions over time, and you'd like that
@@ -95,4 +105,8 @@ what they're great at), or documents too big to fit the Reader's attention span
 
 A computer with Docker installed and ~10 GB of memory to spare, one `python
 llamacag.py setup`, one `python llamacag.py start`, and patience for a one-time
-model download. Everything else is in the [README](../README.md).
+model download. For a calm, click-by-click walkthrough — including a
+*"let Claude Code do it"* option — see the **[setup guide](SETUP.md)**. Curious
+what people actually run on this? The **[use-case tour](USE-CASES.md)** shows
+five real setups, one picture each; everything else is in the
+[README](../README.md).

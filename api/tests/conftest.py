@@ -87,7 +87,11 @@ class FakeDatabase:
         return True
 
     def mark_failed(self, document_id, error):
-        self.documents[document_id].update(status="failed", error=error)
+        # Mirror the real UPDATE ... WHERE id = %s: a missing row is a no-op, not
+        # a KeyError (a delete can race an ingest failure).
+        doc = self.documents.get(document_id)
+        if doc is not None:
+            doc.update(status="failed", error=error)
 
     def touch_used(self, document_id):
         # Mirror the real UPDATE ... WHERE id = %s: a missing row (e.g. deleted
@@ -120,6 +124,27 @@ class FakeDatabase:
             "avg_duration_ms_24h": 0,
         }
 
+    def usage_stats(self):
+        # The fake logs no timestamp, so it collapses all three windows to the
+        # same totals over self.queries (window differentiation is a live-DB
+        # concern, out of scope for the fake). Same key shape as the real method.
+        reused = sum((q.get("n_cached_tokens") or 0) for q in self.queries)
+        evaluated = sum((q.get("n_eval_tokens") or 0) for q in self.queries)
+        failed = sum(1 for q in self.queries if not q.get("success"))
+        n = len(self.queries)
+        denom = reused + evaluated
+        window = {
+            "queries": n,
+            "failed": failed,
+            "tokens_reused": reused,
+            "tokens_evaluated": evaluated,
+            "avg_eval_tokens": round(evaluated / n, 4) if n else 0.0,
+            "reuse_ratio": round(reused / denom, 4) if denom else 0.0,
+            "p50_duration_ms": 0,
+            "p95_duration_ms": 0,
+        }
+        return {"24h": dict(window), "7d": dict(window), "all": dict(window)}
+
     @staticmethod
     def _public(doc, with_content=False):
         skip = () if with_content else ("content",)
@@ -137,6 +162,13 @@ class FakeLlama:
         self.fail_restore = False
         self.healthy = True
         self.answer = "the answer"
+        # When set, chat() returns this instead of `answer` — used by /verify
+        # tests to feed a JSON verdict string. Default None keeps every existing
+        # test (which asserts answer == "the answer") unchanged.
+        self.answer_json: str | None = None
+        # Per-question scripted answers keyed on the last user turn — used by
+        # calibration tests. Empty dict falls back to answer_json-else-answer.
+        self.scripted: dict[str, str] = {}
         self.model_path = "/models/fake-model.gguf"
 
     def health(self):
@@ -158,8 +190,12 @@ class FakeLlama:
         self.calls.append(("chat", messages[0]["content"][:60], warm, slot_id))
         self.last_messages = messages
         self.last_json_schema = json_schema
+        # Canonical composed body: scripted (per last user turn) wins, else
+        # answer_json if set, else answer.
+        fallback = self.answer_json if self.answer_json is not None else self.answer
+        content = self.scripted.get(messages[-1]["content"], fallback)
         return {
-            "content": self.answer,
+            "content": content,
             "timings": {"prompt_n": 12, "cache_n": 480, "predicted_n": 20},
             "usage": {"prompt_tokens": 492},
         }

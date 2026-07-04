@@ -49,6 +49,27 @@ class Settings(BaseSettings):
     default_max_answer_tokens: int = 1024
     default_temperature: float = 0.2
 
+    # Cost-savings estimate dial (GET /stats). A cloud provider's per-1k *input*-token
+    # price; savings ≈ tokens_reused/1000 × this. 0.0 (default) hides the money line.
+    cloud_price_per_1k_input: float = 0.0
+
+    # Serve the zero-install web UI at /ui. Loopback-only by design (the stack is
+    # unauthenticated); see the security note in docs/ROADMAP.md F9 before binding
+    # the API beyond 127.0.0.1.
+    webui_enabled: bool = True
+
+    # Calibration battery: max Q/A pairs accepted by POST /documents/{id}/calibrate.
+    calibrate_max_items: int = 100
+    # Pass line for non-strict answer scoring (normalized containment always counts;
+    # below it, difflib ratio must clear this). Distinct from quote_match_threshold.
+    calibrate_match_threshold: float = 0.85
+
+    # Paraphrase tolerance for POST /verify's mechanical quote check: the minimum
+    # difflib ratio at which a non-exact quote still counts as grounded. Higher =
+    # stricter. Behavioral (not geometry), but plumbed through docker-compose.yml's
+    # cag-api env allowlist + .env.example so setting it actually reaches the container.
+    quote_match_threshold: float = 0.9
+
     @property
     def slot_ctx_size(self) -> int:
         return self.llama_ctx_size // max(self.cag_slots, 1)
