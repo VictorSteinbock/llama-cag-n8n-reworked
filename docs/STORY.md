@@ -1,93 +1,96 @@
-# Why I'm building this, honestly
+# A CAG-based validation protocol. Maybe. Help me find out.
 
-I'm not a professional in this field. I work remotely, the laptop is dated, and
-this is what I do in my spare time. About a year ago I tried to build this exact
-idea and gave up halfway: the scripts called llama.cpp flags that didn't exist,
-the caching was tied to one model in a way that silently corrupted answers, and
-I didn't understand enough of what I was doing. This is the second attempt,
-rebuilt from zero, and this time I want other eyes on it before I sink deeper.
+Hi. I'm a hobbyist, not a professional in this field. I work remotely on a
+dated laptop and build this in my spare time. A year ago I tried the same idea
+and abandoned it half-built. This is the second attempt, and honestly I've
+spent more time sharpening the axe than chopping with it. Before I sink another
+year in, I want people who know more than me to tell me where the thinking is
+wrong.
 
-## The itch I'm scratching
+One thing to say upfront: I leaned on Claude Code heavily to build this. The
+direction, the decisions and the mistakes are mine, but a lot of the code was
+written with it and reviewed by me to the level I'm able to. Judge accordingly.
 
-Three things kept bothering me:
+## The problems I think this addresses, on some level
 
-1. **Models re-read the same document over and over.** If I have one dense
-   manual and a hundred questions, why am I paying (in time or tokens) for a
-   hundred full reads? The document didn't change.
-2. **Models invent policy.** Ask a support bot something slightly off the beaten
-   path and it will confidently make up a refund rule. I wanted answers that
-   carry the exact line they came from, checked mechanically, not by vibes.
-3. **Agents drift.** The new crop of self-improving agents (OpenClaw, Hermes)
-   write their own memory. One hallucinated fact gets stored, then retrieved,
-   then reinforced. Nobody ships a ground-truth check for that loop.
+I'm deliberately saying "I think" and "on some level". I'm not confident this
+is even the right approach. But these are the three itches:
 
-## What it does today
+1. **Paying for the same read over and over.** One dense manual, a hundred
+   questions. Every setup I tried re-reads the document per question, in time
+   or in tokens. The document didn't change, so why does the work repeat?
+2. **Invented citations.** A model will say "supported, see section 4.2" and
+   section 4.2 says no such thing. Checking that quote is string matching, not
+   intelligence. It felt like something code should do, not vibes.
+3. **Agent memory drift.** Self-improving agents (OpenClaw, Hermes) write their
+   own memory. One hallucinated fact gets stored, retrieved, reinforced, and
+   there's no ground truth anywhere in that loop to catch it.
 
-The model reads your document once. Its internal state (the KV cache) is saved
-to disk. Every question after that restores the state instead of re-reading, so
-only your question and the answer are ever computed. That's the whole trick.
+## What I built
 
-<p align="center">
-  <img src="images/demo-60s.svg" alt="Three steps: pin the document once, your agent asks a tens-of-tokens question, grounded answer arrives with the exact quoted line. Receipt: evaluated 38 of 41,772 tokens, 590 ms, from memory." width="100%">
-</p>
-
-On top of that sits the part I care most about, a verification endpoint: give it
-a claim, it answers at temperature 0 with a verdict plus the supporting quote,
-and then the code checks byte-by-byte that the quote actually exists in the
-source. A made-up citation gets caught without any extra model call. That
-endpoint is what the agent gate is built on:
+The mechanism: llama.cpp reads your document once, and the model's internal
+state (the KV cache) is saved to disk. Every later question restores that
+state, so only the question and the answer are ever computed.
 
 <p align="center">
-  <img src="images/grounding-gate.svg" alt="An agent's feedback loop with corruptible memory. A candidate fact passes a write-validation gate that consults the canon pinned outside the loop; supported facts enter memory, contradicted or unverifiable ones are quarantined." width="100%">
+  <img src="images/demo-60s.svg" alt="Three steps: pin the document once, your agent asks a tens-of-tokens question, a grounded answer arrives with the exact quoted line. Receipt: evaluated 38 of 41,772 tokens, 590 ms, from memory." width="100%">
 </p>
 
-The five setups I think this is actually for are one page each in the
-[use-case deck](USE-CASES.md), each with its honest limits printed on the slide.
+The part I actually care about sits on top, the validation step. Send a claim,
+get a verdict at temperature 0 with the supporting quote, and then plain code
+checks byte-for-byte that the quote really occurs in the source. A fabricated
+citation fails mechanically, no second model call. That feeds a fail-closed
+gate: only "supported with a real, non-trivial quote" is ever trusted, and
+everything else (contradicted, absent, fabricated, oracle down) gets
+quarantined or escalated. The gate is what I bolt into agent loops:
 
-## What I have actually tested, and what I haven't
+<p align="center">
+  <img src="images/grounding-gate.svg" alt="An agent's feedback loop with corruptible memory. A candidate fact passes a write-validation gate that consults a canon pinned outside the loop; supported facts enter memory, everything else is quarantined." width="100%">
+</p>
 
-I want to be straight about this, because it's the part that would annoy me if
-someone else hid it.
+Five concrete setups, one page each with their limits printed on the slide, are
+in the [use-case deck](USE-CASES.md).
 
-**Tested by me:** the core loop (ingest, query, restore after restart, the
-self-heal path when cache files go missing), the verify endpoint's mechanics,
-the model-switch guard, the web UI (offline browser walkthrough), and the whole
-test suite (126 api + 27 mcp + 15 gate tests, all in CI). The fail-safe logic of
-the agent gate is unit-tested against scripted verdicts.
+## Resource reality, plainly
 
-**Built but not tested end-to-end:** the Hermes and OpenClaw adapters against
-live agent installs, the calibration battery on a real big canon, the GPU
-compose paths, and honestly the full experience with a serious model on serious
-hardware. My machine can't hold the default 12B model plus a 64k context
-comfortably, so the one thing gating the v2.1 tag is a real boot on a real
-machine ([the script is written](IMPLEMENTATION_PLAN.md), I just can't run it
-properly).
+The saved state lives on disk, one file per document. To answer, it has to be
+active in RAM: the server allocates a fixed block at startup (sized by your
+context setting) and holds the model weights next to it, always. A cold
+document loads from disk into that block in seconds. More documents cost disk
+only, never more RAM. The flip side: the default model (12B) plus a 64k
+context wants more RAM than my laptop has, which is exactly why I need help
+below.
 
-So: the logic is verified, the lived experience on big RAM is not. If you have
-a 32 to 128 GB machine and some curiosity, running that script and telling me
-what broke would genuinely help.
+## Tested vs not tested, honestly
 
-## Where I think I might be wrong
+Tested by me: the core loop (ingest, ask, restore after restart, self-heal when
+cache files vanish), the quote-check mechanics, the model-switch guard, and the
+gate logic. About 170 tests in CI, all against fakes.
 
-I've been down this rabbit hole long enough to get myopic. Things I'd love to
-be challenged on:
+Not tested: the lived experience with a serious model on serious hardware, the
+Hermes and OpenClaw adapters against live agent installs, the GPU paths, and
+calibration on a real large document. Built, reasoned about, reviewed, but not
+run for real. That gap is the whole reason for this post.
 
-- Is a pinned whole-document KV cache actually the right anchor for agent
-  memory checks, or am I over-engineering what a good retrieval setup solves?
-- The evidence rules in the gate (byte-checked quotes, a minimum quote length,
-  fail-closed on everything else) are heuristics. Where do they break?
-- Is "one document per query" too limiting in practice, even with the
-  concatenate-related-docs workaround?
-- The whole thing assumes your source document is trustworthy. Is that
-  assumption fair for the use cases I picked?
+## What I'm asking for
+
+1. **Criticism of the logic, first and foremost.** Is a pinned whole-document
+   KV cache a sane anchor for validating answers and agent memory, or am I
+   over-engineering something retrieval already solves? Where do the evidence
+   rules (byte-checked quotes, minimum quote length, fail-closed defaults)
+   break?
+2. **A big-RAM volunteer.** If you have a 32 to 128 GB machine and some
+   curiosity, the [live verification script](IMPLEMENTATION_PLAN.md) is
+   written. Run it, tell me what breaks.
+3. **Prior art I missed.** If this already exists and I reinvented a worse
+   wheel, point me at the better one. Genuinely.
 
 ## If you want to poke at it
 
-Three commands (Docker required): `python llamacag.py setup`, then `start`,
-then drop a file in `./documents`. There are bundled samples so you can see it
-work in a minute. If you use Claude Code, there's a
-[paste-one-prompt setup](SETUP.md#let-claude-code-do-it) that does everything
-for you. The [README](../README.md) has a 60-second visual demo up top.
+Docker plus three commands: `python llamacag.py setup`, `start`, drop a file in
+`./documents`. Bundled samples let you see it work in a minute. If you use
+Claude Code, there's a [paste-one-prompt setup](SETUP.md#let-claude-code-do-it)
+that does the whole install for you. The [README](../README.md) has a
+60-second visual demo at the top.
 
-Feedback, criticism, and "you should have just used X" are all welcome. I'd
-rather learn that now than after another year in the hole.
+Be blunt. I'd rather be embarrassed now than a year further in.
