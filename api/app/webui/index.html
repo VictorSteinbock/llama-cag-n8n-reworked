@@ -415,6 +415,17 @@
     var g = v.quote_grounded === true ? '<span class="chip yes">✓ yes</span>'
       : v.quote_grounded === false ? '<span class="chip no">✗ no</span>'
       : '<span class="chip na">n/a</span>';
+    // "absent" has no quote to ground; the API sends a mechanical recall probe
+    // instead (claim-vocabulary overlap with the document). Surface it so an
+    // uncorroborated absence is visibly suspicious — mirrors the MCP render
+    // and the gate's 0.5 threshold (Policy.absent_recall_overlap).
+    var overlap = v.recall && typeof v.recall.max_overlap === "number"
+      ? v.recall.max_overlap : null;
+    if (overlap !== null) {
+      g += '<div class="muted" style="margin-top:4px">' + (overlap >= 0.5
+        ? "recall " + overlap + " — topic present, treat with suspicion"
+        : "recall " + overlap + " — absence corroborated") + "</div>";
+    }
     return "<td>" + esc(v.claim) + '</td><td><span class="chip ' + esc(v.verdict) + '">' +
       esc(v.verdict) + "</span></td><td>" + g + "</td><td>" + esc(v.quote || "—") +
       "</td><td>" + (v.conditions ? esc(v.conditions) : "—") + "</td>";
