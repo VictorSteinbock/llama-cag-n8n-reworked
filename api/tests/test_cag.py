@@ -806,3 +806,18 @@ def test_calibrate_runs_through_query_path(engine, fake_llama, fake_db):
 
     assert len(fake_db.queries) == 2  # one logged query per battery item
     assert all(q["success"] is True for q in fake_db.queries)
+
+
+# --- regression: non-string quote must not crash verify (code-review find) ---
+
+def test_verify_non_string_quote_does_not_crash(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    # A schema slip yields a numeric quote; grounding() would call .strip() on an
+    # int and 500. It must be coerced to "" and the endpoint stay well-formed.
+    fake_llama.answer_json = '{"verdict":"supported","quote":42,"conditions":7}'
+
+    result = engine.verify_claim("anything")  # must not raise
+
+    assert result["quote"] == ""          # non-string coerced away
+    assert result["conditions"] == ""
+    assert result["quote_grounded"] is None  # nothing to ground

@@ -30,7 +30,11 @@ from difflib import SequenceMatcher
 # U+200B/C/D + U+FEFF zero-widths, U+00A0 NBSP, U+2018/19 curly single quotes,
 # U+201C/D curly double quotes, U+2013/14 en/em dash.
 _WS = re.compile(r"\s+")
-_SHY = re.compile(r"\u00ad\s*")  # soft hyphen + the line break it wraps
+# A soft hyphen (U+00AD) marks a hyphenation point. When it wraps a line it is
+# followed by a newline (and maybe indentation): rejoin by deleting the whole
+# run. A soft hyphen NOT at a line break is invisible and must be dropped
+# WITHOUT eating an adjacent real space (else "co<shy> operate" -> "cooperate").
+_SHY_WRAP = re.compile(r"\u00ad[ \t]*\r?\n[ \t]*")
 _ZW = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))
 _PUNCT = str.maketrans(
     {
@@ -41,9 +45,13 @@ _PUNCT = str.maketrans(
     }
 )
 
-# A quote sharing no >=4-char word with the document is not grounded, so anchor
-# scanning is bounded: at most this many content matches are ever windowed.
-_ANCHOR_HIT_CAP = 400
+# Cost bound: seed windows from at most this many candidate offsets, and score at
+# most this many distinct windows. Seeds are drawn from the RAREST anchor words
+# first (see _best_fuzzy_ratio), so a quote whose common words repeat thousands of
+# times before its real location is still found \u2014 the cap never skips the match by
+# document position, only ever trims genuinely redundant windows.
+_SEED_CAP = 800
+_WINDOW_CAP = 800
 
 
 def _normalize(text: str) -> str:
@@ -51,7 +59,9 @@ def _normalize(text: str) -> str:
     rejoin soft-hyphen line breaks and drop zero-widths, then the punctuation
     fold, and only then whitespace collapse + casefold."""
     text = unicodedata.normalize("NFKC", text)
-    text = _SHY.sub("", text).translate(_ZW).translate(_PUNCT)
+    text = _SHY_WRAP.sub("", text)  # rejoin soft-hyphenated line breaks
+    text = text.replace("\u00ad", "")  # drop any remaining bare soft hyphen, keep spacing
+    text = text.translate(_ZW).translate(_PUNCT)
     return _WS.sub(" ", text).strip().casefold()
 
 
@@ -73,27 +83,48 @@ def _best_fuzzy_ratio(nq: str, nc: str) -> float:
     if not anchors:
         return 0.0
 
-    starts: list[int] = []
+    # Index every occurrence of each anchor word in one linear pass.
+    hits: dict[str, list[int]] = {}
     for match in re.finditer(r"\S+", nc):
-        if match.group() in anchors:
-            starts.append(max(0, match.start() - qlen // 4))
-            if len(starts) >= _ANCHOR_HIT_CAP:
-                break
-    if not starts:
+        word = match.group()
+        if word in anchors:
+            hits.setdefault(word, []).append(match.start())
+    if not hits:
         return 0.0
+
+    # Seed from the RAREST anchor words first: a genuine quote's distinctive words
+    # appear only a handful of times (once at the real match), so seeding on them
+    # targets that location instead of drowning in a common word's occurrences.
+    # This is the fix for the document-order cap that could skip a present quote
+    # located after many earlier occurrences of its common words.
+    starts: list[int] = []
+    for word in sorted(hits, key=lambda w: len(hits[w])):
+        starts.extend(hits[word])
+        if len(starts) >= _SEED_CAP:
+            break
+    starts = [max(0, offset - qlen // 4) for offset in starts]
 
     # Thin near-identical windows: keep one per ~quarter-quote of advance so
     # clustered anchors don't re-score the same region repeatedly.
     step = max(1, qlen // 4)
     span = qlen + qlen // 2
+    thinned: list[int] = []
+    last = None
+    for start in sorted(set(starts)):
+        if last is None or start - last >= step:
+            thinned.append(start)
+            last = start
+    # Backstop: if a pathologically repetitive doc still yields too many windows,
+    # sample them evenly across the whole document (never just the first N) so the
+    # real match region is still represented.
+    if len(thinned) > _WINDOW_CAP:
+        stride = len(thinned) / _WINDOW_CAP
+        thinned = [thinned[int(i * stride)] for i in range(_WINDOW_CAP)]
+
     matcher = SequenceMatcher(autojunk=False)
     matcher.set_seq1(nq)
     best = 0.0
-    last = None
-    for start in sorted(set(starts)):
-        if last is not None and start - last < step:
-            continue
-        last = start
+    for start in thinned:
         matcher.set_seq2(nc[start : min(len(nc), start + span)])
         blocks = [b for b in matcher.get_matching_blocks() if b.size]
         if not blocks:

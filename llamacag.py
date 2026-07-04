@@ -425,7 +425,6 @@ def _run_converter(prepare_cmd: str, src: Path, dest: Path, docs_folder: str) ->
     {in}/{out} are substituted as whole argv elements (resolved-absolute paths,
     which cannot start with '-' and so can't be parsed as converter options);
     subprocess.run gets a list argv, never shell=True."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
     tmp_out = dest.parent / (dest.name + ".partial")
     token_map = {"{in}": str(src.resolve()), "{out}": str(tmp_out.resolve())}
     argv = [token_map.get(token, token) for token in shlex.split(prepare_cmd)]
@@ -435,6 +434,9 @@ def _run_converter(prepare_cmd: str, src: Path, dest: Path, docs_folder: str) ->
     if shutil.which(argv[0]) is None:
         print(f"[!!] Converter '{argv[0]}' is not on PATH. Install it, or fix PREPARE_CMD in .env.")
         return 1
+    # Create the output folder only once we're actually going to run (a
+    # missing-converter bail leaves no empty staging folder behind).
+    dest.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(argv, cwd=PROJECT_ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"[!!] Converter failed (exit {proc.returncode}):")

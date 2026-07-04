@@ -6,7 +6,7 @@ exactly which character it exercises (soft hyphen, NBSP, curly quotes, em-dash).
 
 import time
 
-from app.grounding import grounding
+from app.grounding import _normalize, grounding
 
 DOC = (
     "The ACME Widget Pro battery lasts eighteen hours on a single full charge "
@@ -83,3 +83,28 @@ def test_large_document_stays_fast():
     elapsed = time.monotonic() - start
     assert fuzzy["method"] in {"exact", "fuzzy"}
     assert elapsed < 2.0
+
+
+# --- regression: bugs found in the post-build code review --------------------
+
+def test_fuzzy_match_survives_repeated_common_words():
+    # A quote's common words repeat 1000x before its real location; the fuzzy
+    # path must still find the match (rarest-anchor seeding), not miss it because
+    # an in-document-order cap filled up on the earlier repetitions.
+    common = "The widget shall comply with the widget standard. " * 500
+    doc = common + " the thermal cutoff engages at 55 degrees celsius precisely. end."
+    result = grounding("thermal cutoff engages at 55 degrees celcius", doc)  # 1-char drift -> fuzzy
+    assert result["method"] == "fuzzy"
+    assert result["grounded"] is True
+    assert result["match_ratio"] >= 0.9
+
+
+def test_soft_hyphen_not_at_linebreak_keeps_adjacent_space():
+    # A soft hyphen that is NOT wrapping a line must be dropped WITHOUT eating a
+    # following real space (else two words glue together and a quote corrupts).
+    shy = chr(0x00ad)
+    content = f"They agreed to co{shy} operate on the project."
+    # "co operate" must stay two words; a quote for "co operate" grounds exact.
+    result = grounding("co operate", content)
+    assert result["method"] == "exact"
+    assert _normalize(f"co{shy} operate") == "co operate"

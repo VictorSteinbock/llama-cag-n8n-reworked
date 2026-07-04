@@ -87,7 +87,11 @@ class FakeDatabase:
         return True
 
     def mark_failed(self, document_id, error):
-        self.documents[document_id].update(status="failed", error=error)
+        # Mirror the real UPDATE ... WHERE id = %s: a missing row is a no-op, not
+        # a KeyError (a delete can race an ingest failure).
+        doc = self.documents.get(document_id)
+        if doc is not None:
+            doc.update(status="failed", error=error)
 
     def touch_used(self, document_id):
         # Mirror the real UPDATE ... WHERE id = %s: a missing row (e.g. deleted

@@ -494,8 +494,15 @@ class CagEngine:
             parsed = None
         if isinstance(parsed, dict):
             verdict = parsed.get("verdict")
-            quote = parsed.get("quote", "") or ""
-            conditions = parsed.get("conditions", "") or ""
+            quote = parsed.get("quote", "")
+            conditions = parsed.get("conditions", "")
+            # Coerce non-string quote/conditions (a schema slip could yield a
+            # number/bool/list): a non-str quote reaching grounding() would call
+            # .strip() on an int and 500. Non-strings collapse to "".
+            if not isinstance(quote, str):
+                quote = ""
+            if not isinstance(conditions, str):
+                conditions = ""
         else:
             verdict, quote, conditions = "error", "", ""
         if verdict not in {"supported", "absent", "contradicted"}:

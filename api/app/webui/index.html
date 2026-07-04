@@ -285,7 +285,11 @@
       state.history.push({ role: "assistant", content: res.answer, receipt: receipt });
     } catch (e) {
       toast(e);
-      state.history.push({ role: "assistant", content: "(error — see toast)" });
+      // Drop the failed user turn so a failed exchange never gets replayed into
+      // the prompt as history on the next query (no synthetic turn pollutes it).
+      if (state.history.length && state.history[state.history.length - 1].role === "user") {
+        state.history.pop();
+      }
     } finally {
       el("chatSend").disabled = false;
       renderTranscript();
