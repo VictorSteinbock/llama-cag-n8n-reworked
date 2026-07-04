@@ -170,6 +170,11 @@ class FakeLlama:
         # calibration tests. Empty dict falls back to answer_json-else-answer.
         self.scripted: dict[str, str] = {}
         self.model_path = "/models/fake-model.gguf"
+        # Mirrors /props "total_slots" (the server's --parallel). Real servers
+        # always report it; None simulates an older build without the field.
+        # Tests that build engines with cag_slots > 1 must set this to match,
+        # exactly as a correctly-deployed stack would.
+        self.total_slots: int | None = 1
 
     def health(self):
         if not self.healthy:
@@ -180,7 +185,10 @@ class FakeLlama:
         if not self.healthy:
             raise LlamaError("llama-server unreachable")
         self.calls.append(("props",))
-        return {"model_path": self.model_path, "total_slots": 1}
+        payload = {"model_path": self.model_path}
+        if self.total_slots is not None:
+            payload["total_slots"] = self.total_slots
+        return payload
 
     def count_tokens(self, text):
         self.calls.append(("count_tokens", len(text)))

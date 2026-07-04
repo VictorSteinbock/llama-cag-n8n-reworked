@@ -197,6 +197,16 @@ class CagEngine:
         restore or warm touches a slot. If llama-server is down the check is
         simply deferred to the next interaction — never an error.
 
+        The same /props response also validates slot GEOMETRY, and that check
+        is the one that does raise: llama-server maps any out-of-range id_slot
+        onto ``id_slot % total_slots`` (completions and /slots actions alike) —
+        it silently wraps instead of erroring. If CAG_SLOTS drifted from the
+        server's --parallel (containers recreated independently, the same
+        drift class as the model switch above), engine slots would collide on
+        shared physical slots: restores stomping each other, full re-prefills,
+        and a slot map that lies throughout. There is no safe degraded mode,
+        so a mismatch raises LlamaError instead of routing a single request.
+
         The result is memoized per process for the hot path, but callers about
         to RESTORE pass ``force=True``: llama-server restarts independently
         (compose recreates only it on a model edit — cag-api's env carries no
@@ -210,6 +220,23 @@ class CagEngine:
             props = self._llama.props()
         except LlamaError:
             return  # llama down/unreachable — retry on the next interaction
+
+        # Slot-geometry guard (see docstring): fail loud on CAG_SLOTS drift,
+        # before any slot id gets a chance to wrap. Raising here leaves
+        # _model_checked False, so the next interaction after the operator
+        # aligns the config re-checks and recovers on its own. An absent
+        # field means an older server build: skip rather than guess.
+        total_slots = props.get("total_slots")
+        if isinstance(total_slots, int) and total_slots != self._settings.cag_slots:
+            raise LlamaError(
+                f"llama-server reports {total_slots} slot(s) but this engine is "
+                f"configured for CAG_SLOTS={self._settings.cag_slots}. llama-server "
+                "silently wraps out-of-range slot ids (id_slot modulo its slot "
+                "count), so continuing would corrupt slot routing. Align CAG_SLOTS "
+                "with --parallel and recreate BOTH containers (docker compose up -d "
+                "after editing .env), then retry."
+            )
+
         identity = str(props.get("model_path") or "").strip()
         if not identity:
             # /props no longer exposes model_path (upstream change?): we cannot

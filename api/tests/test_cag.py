@@ -289,6 +289,7 @@ def test_two_slots_keep_two_documents_hot(fake_llama, fake_db, tmp_path):
         cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
         cag_slots=2, db_password="test",
     )
+    fake_llama.total_slots = 2
     engine = CagEngine(fake_llama, fake_db, settings)
     engine.ingest_text("first.txt", DOC)
     engine.ingest_text("second.txt", DOC + " More facts.")
@@ -310,6 +311,7 @@ def test_lru_eviction_when_all_slots_busy(fake_llama, fake_db, tmp_path):
         cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
         cag_slots=2, db_password="test",
     )
+    fake_llama.total_slots = 2
     engine = CagEngine(fake_llama, fake_db, settings)
     engine.ingest_text("first.txt", DOC)
     engine.ingest_text("second.txt", DOC + " b")
@@ -329,6 +331,7 @@ def test_token_limit_is_per_slot(fake_llama, fake_db, tmp_path):
         cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
         cag_slots=2, db_password="test",
     )
+    fake_llama.total_slots = 2
     engine = CagEngine(fake_llama, fake_db, settings)
     # 450 fits the single-slot limit (1000−100−96 = 804) but not the two-slot
     # one (500−100−96 = 304).
@@ -402,6 +405,7 @@ def test_health_never_raises_during_concurrent_slot_churn(fake_llama, fake_db, t
         cache_dir=tmp_path, llama_ctx_size=100000, answer_reserve_tokens=100,
         cag_slots=4, db_password="test",
     )
+    fake_llama.total_slots = 4
     engine = CagEngine(fake_llama, fake_db, settings)
     stop = threading.Event()
     errors: list[Exception] = []
@@ -975,3 +979,51 @@ def test_verify_non_string_quote_does_not_crash(engine, fake_llama):
     assert result["quote"] == ""          # non-string coerced away
     assert result["conditions"] == ""
     assert result["quote_grounded"] is None  # nothing to ground
+
+
+# --- regression: slot-geometry drift (docx-recon verification find) ----------
+# llama-server maps out-of-range slot ids onto id_slot % total_slots — it
+# silently WRAPS instead of erroring (verified in tools/server/server-context.cpp
+# on master, 2026-07-04), for completions and /slots actions alike. A CAG_SLOTS
+# vs --parallel drift must therefore fail loud before any slot id can wrap.
+
+def test_slot_count_drift_fails_loud_not_silent_wrap(fake_llama, fake_db, tmp_path):
+    from app.config import Settings
+    from app.llama import LlamaError
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        cag_slots=2, db_password="test",
+    )
+    fake_llama.total_slots = 1  # server recreated with --parallel 1, engine not
+    engine = CagEngine(fake_llama, fake_db, settings)
+
+    with pytest.raises(LlamaError) as exc:
+        engine.ingest_text("facts.txt", DOC)
+    message = str(exc.value)
+    assert "CAG_SLOTS=2" in message and "1 slot" in message
+    assert fake_llama.called("slot_erase") == []  # refused before touching a slot
+
+    # Raising leaves the check un-memoized: once the operator aligns the
+    # config, the very next interaction re-checks, heals the failed row, and
+    # proceeds — no restart of cag-api required.
+    fake_llama.total_slots = 2
+    result = engine.ingest_text("facts.txt", DOC)
+    assert result["status"] == "cached"
+
+
+def test_slot_count_absent_from_props_stays_lenient(fake_llama, fake_db, tmp_path):
+    # Older llama-server builds without "total_slots" in /props: geometry is
+    # unverifiable, and an unverifiable premise must not brick the stack —
+    # exactly like the missing-model_path fail-open above it.
+    from app.config import Settings
+
+    settings = Settings(
+        cache_dir=tmp_path, llama_ctx_size=1000, answer_reserve_tokens=100,
+        cag_slots=2, db_password="test",
+    )
+    fake_llama.total_slots = None
+    engine = CagEngine(fake_llama, fake_db, settings)
+
+    assert engine.ingest_text("facts.txt", DOC)["status"] == "cached"
+    assert engine.query("Q?")["answer"] == "the answer"
