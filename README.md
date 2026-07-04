@@ -157,7 +157,9 @@ curl -X POST http://localhost:5678/webhook/cag/sweep \
 dedupe sorts it out — unchanged re-drops are free no-ops, changed versions
 re-warm automatically, and the query webhook always answers against the latest
 cached state. Point a nightly export at the folder and you have a self-updating
-document memory. **Agent loops:** via MCP (or `history` on `/query`), an agent
+document memory. (One cadence note: every *changed* version pays the one-time
+read again — so batch edits into that nightly drop rather than re-dropping
+after each small change.) **Agent loops:** via MCP (or `history` on `/query`), an agent
 can interrogate a pinned document iteratively — plan, ask, refine, ask again —
 while only the questions and answers ever occupy the agent's own context.
 

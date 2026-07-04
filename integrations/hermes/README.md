@@ -39,6 +39,7 @@ The decision logic lives in the unit-tested [`cag_gate`](../cag_gate) package;
    | `CAG_MEMORY_PATH` | `MEMORY.md` | Where verified facts are appended |
    | `CAG_MEMORY_QUARANTINE_PATH` | `MEMORY.quarantine.md` | Where rejected facts are diverted |
    | `CAG_OVERRIDE_MEMORY` | *(unset = off)* | `1` = register the gate **as** the built-in `memory` tool (`override=True`) — hard enforcement |
+   | `CAG_ABSENT_TO_MEMORY` | *(unset = off)* | `1` = `absent` facts stay in `MEMORY.md` tagged `[unverified]` instead of the quarantine file — for episodic/subjective memories the canon can't rule on. Recommended alongside the hard gate. |
 
 5. **Tell the agent to use it.** Add one line to your Hermes system prompt:
    > To remember a fact, call `cag_remember` (it verifies against the canon). Before

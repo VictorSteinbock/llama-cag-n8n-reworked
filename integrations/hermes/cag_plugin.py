@@ -58,6 +58,10 @@ def _quarantine_path() -> Path:
     return Path(os.environ.get("CAG_MEMORY_QUARANTINE_PATH", "MEMORY.quarantine.md"))
 
 
+def _truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _append(path: Path, line: str) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,6 +104,17 @@ def cag_remember_tool(args: dict, **kwargs) -> str:
     if decision.trusted:
         _append(_memory_path(), f"- {fact}")
         return json.dumps({"stored": True, "verified": True, "reason": decision.reason})
+    if decision.verdict.verdict == "absent" and _truthy("CAG_ABSENT_TO_MEMORY"):
+        # Episodic/subjective memories ("user prefers terse answers") are
+        # inherently absent from a technical canon. With this flag they stay
+        # USABLE in the memory file — visibly tagged, never verified — instead
+        # of flooding the quarantine file. Recommended with the hard gate
+        # (CAG_OVERRIDE_MEMORY=1), where ALL writes pass through here.
+        _append(_memory_path(), f"- [unverified] {fact}")
+        return json.dumps({
+            "stored": True, "verified": False, "tagged": "unverified",
+            "reason": decision.reason,
+        })
     _append(_quarantine_path(), f"- [{decision.tag}] {fact}  ({decision.reason})")
     return json.dumps({
         "stored": False,
@@ -182,7 +197,7 @@ def register(ctx):
     # hook below is only a reactive tripwire — Hermes hooks are observers and
     # cannot veto a write that already happened. (Match the schema to your
     # Hermes version's memory tool if it differs.)
-    if os.environ.get("CAG_OVERRIDE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if _truthy("CAG_OVERRIDE_MEMORY"):
         ctx.register_tool(
             name="memory", toolset=TOOLSET, schema=_FACT_SCHEMA,
             handler=cag_remember_tool, override=True,

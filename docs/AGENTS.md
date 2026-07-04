@@ -148,6 +148,11 @@ claiming *"rate limit is 1000 req/s"* (the spec says 100).
   strings — hence the evidence floor above; it is a heuristic, not a proof.
 - **Cost.** Each gate is one local `temperature 0` call. Gate the *consequential*
   writes and actions, not every token.
+- **Episodic memories are `absent` by nature.** "The user prefers terse answers"
+  isn't in any technical canon, so a hard gate would divert an agent's whole
+  working memory to quarantine. The Hermes plugin's `CAG_ABSENT_TO_MEMORY=1`
+  keeps such facts usable in `MEMORY.md`, visibly tagged `[unverified]` — never
+  verified, never lost. Gate objective claims; tag subjective ones.
 
 ## High-demand use cases
 
