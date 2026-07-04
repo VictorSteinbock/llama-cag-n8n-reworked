@@ -209,6 +209,10 @@ class FakeLlama:
         self.calls.append(("slot_restore", filename, slot_id))
         if self.fail_restore:
             raise LlamaError("restore failed")
+        # Mirror the real server: restoring a file that doesn't exist under
+        # --slot-save-path is a 400, never a silent success.
+        if not (self.cache_dir / filename).exists():
+            raise LlamaError(f"slot restore: file not found: {filename}")
         return {"n_restored": self.tokens_per_text, "filename": filename}
 
     def slot_erase(self, slot_id=0):
@@ -225,6 +229,10 @@ def settings(tmp_path):
         cache_dir=tmp_path,
         llama_ctx_size=1000,
         answer_reserve_tokens=100,
+        # The query budget counts the ACTUAL answer allowance (max_tokens),
+        # so the test default must match the shrunken reserve — the production
+        # defaults keep the same 1024/1024 pairing.
+        default_max_answer_tokens=100,
         db_password="test",
     )
 

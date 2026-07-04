@@ -159,6 +159,13 @@ def native_llama_command(env: dict[str, str]) -> str:
         f"  --cache-type-k {kv} \\",
         f"  --cache-type-v {kv} \\",
         f"  --slot-save-path {NATIVE_SLOT_SAVE_PATH} \\",
+        # The four cache-persistence guards — same invariant as every compose
+        # command block (CLAUDE.md / ROADMAP F16): required for trustworthy
+        # slot restores on sliding-window models (all Gemma).
+        "  --swa-full \\",
+        "  --no-mmproj \\",
+        "  --cache-ram 0 \\",
+        "  --ctx-checkpoints 0 \\",
         "  --host 0.0.0.0 \\",
         f"  --port {llama_port}",
     ]

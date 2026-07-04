@@ -173,6 +173,19 @@ def grounding(quote: str, content: str, *, threshold: float = 0.9) -> dict:
 # keeps common glue words from inflating overlap — a heuristic aid, harmless
 # for other languages (their glue words are simply not filtered).
 _CONTENT_TOKEN = re.compile(r"\w{4,}|\d+")
+# Scripts written without spaces: \w{4,} grabs whole clauses as single
+# "tokens" there, and exact token equality across differently-phrased clauses
+# essentially never fires — so a zero-hit result measures nothing.
+_UNSEGMENTED_RANGES = (
+    (0x3040, 0x30FF),  # Hiragana + Katakana
+    (0x3400, 0x9FFF),  # CJK ideographs (ext A + unified)
+    (0xF900, 0xFAFF),  # CJK compatibility ideographs
+    (0x0E00, 0x0E7F),  # Thai
+)
+
+
+def _has_unsegmented(token: str) -> bool:
+    return any(a <= ord(ch) <= b for ch in token for a, b in _UNSEGMENTED_RANGES)
 _PROBE_STOPWORDS = frozenset(
     "that this with from have been being will would should could these those "
     "when where what which while there their them they your yours than then "
@@ -217,6 +230,12 @@ def recall_probe(claim: str, content: str, *, window_chars: int = 400) -> dict:
         if m.group() in tokens
     ]
     if not hits:
+        if any(_has_unsegmented(t) for t in tokens):
+            # Zero hits on an unsegmented-script claim means "cannot measure",
+            # never "corroborated absent" — a confident 0.0 here would tell the
+            # gate a CJK/Thai canon is silent on a topic it may discuss at
+            # length. Inconclusive, like the too-few-tokens case.
+            return {"max_overlap": None, "checked_tokens": len(tokens), "excerpt": None}
         return {"max_overlap": 0.0, "checked_tokens": len(tokens), "excerpt": None}
 
     best = 0

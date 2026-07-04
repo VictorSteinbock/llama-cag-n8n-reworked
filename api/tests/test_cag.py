@@ -103,7 +103,10 @@ def test_query_self_heals_missing_cache_file(fake_llama, fake_db, settings, tmp_
     assert result["answer"] == "the answer"
     assert result["timings"]["cache_source"] == "recomputed"
     assert (tmp_path / "doc-1.bin").exists()  # re-saved for next time
-    assert fake_llama.called("slot_restore") == []  # nothing to restore from
+    # The restore is ATTEMPTED even though our local view says the file is
+    # gone — the server (which may hold the file in native mode) is the
+    # authority; its failure is what routes us to the recompute path.
+    assert len(fake_llama.called("slot_restore")) == 1
 
 
 def test_query_targets_specific_document(engine, fake_llama, fake_db):
@@ -139,9 +142,12 @@ def test_query_threads_history_between_document_and_question(engine, fake_llama)
 
 
 def test_query_trims_oldest_history_first(engine, fake_llama):
-    # Budget: slot 1000 − doc 50 − answer reserve 100 − prompt overhead 96 = 754.
-    # Three turns of est. 308 tokens each (900 chars // 3 + 8) plus the question
-    # (~9) exceed it; dropping the single oldest turn brings it back under.
+    # Budget: slot 1000 − doc 50 − prompt overhead 96 = 854 available; the
+    # answer allowance (100) plus three turns of est. 308 tokens each
+    # (900 chars // 3 + 8) plus the question (~9) exceed it; dropping the
+    # oldest turn brings it under — and its now-orphaned assistant reply goes
+    # with it, because an assistant-first history desyncs the chat template
+    # from the cached document prefix (pair-safe trimming).
     engine.ingest_text("facts.txt", DOC)
     history = [
         {"role": "user", "content": "a" * 900},
@@ -151,10 +157,13 @@ def test_query_trims_oldest_history_first(engine, fake_llama):
 
     result = engine.query("And?", history=history)
 
-    assert result["timings"]["history_trimmed"] == 1
+    assert result["timings"]["history_trimmed"] == 2
     contents = [m["content"] for m in fake_llama.last_messages]
     assert "a" * 900 not in contents  # oldest dropped
-    assert "b" * 900 in contents and "c" * 900 in contents  # newer turns kept
+    assert "b" * 900 not in contents  # orphaned assistant reply dropped too
+    assert "c" * 900 in contents  # newest turn kept
+    roles = [m["role"] for m in fake_llama.last_messages]
+    assert roles == ["system", "user", "user"]  # never assistant-first history
     assert contents[-1] == "And?"  # the question is always last and untouched
 
 
@@ -550,10 +559,13 @@ def test_model_switch_invalidates_stale_caches_once(fake_llama, fake_db, setting
     assert not stray.exists()  # all stale bins removed, not just this doc's
     assert marker.read_text(encoding="utf-8") == "/models/other-model.gguf"
     assert (tmp_path / "doc-1.bin").exists()  # healed under the NEW model
-    assert len(fake_llama.called("props")) == props_before + 1
+    # Two fingerprints on the first query: the per-process check, plus the
+    # forced re-check every RESTORE performs (llama-server restarts on its own,
+    # so restoring is exactly when a same-geometry switch would turn silent).
+    assert len(fake_llama.called("props")) == props_before + 2
 
-    engine2.query("Again?", document_id=1)  # second interaction: no re-check
-    assert len(fake_llama.called("props")) == props_before + 1
+    engine2.query("Again?", document_id=1)  # hot path: no restore, no re-check
+    assert len(fake_llama.called("props")) == props_before + 2
 
 
 def test_matching_model_marker_leaves_caches_untouched(fake_llama, fake_db, settings, tmp_path):
@@ -581,9 +593,125 @@ def test_model_marker_check_defers_while_llama_down(fake_llama, fake_db, setting
     assert (tmp_path / "doc-1.bin").exists()  # nothing deleted blindly
 
     fake_llama.healthy = True  # llama back: next interaction reconciles
-    engine2.query("Q?")
+    engine2._spawn = lambda fn: fn()  # deterministic: run the heal inline
+    result = engine2.query("Q?")
     assert marker.read_text(encoding="utf-8") == "/models/fake-model.gguf"
-    assert not (tmp_path / "doc-1.bin").exists()  # stale bins wiped once
+    # The stale bin was wiped by the reconciliation, the query recomputed, and
+    # the self-heal re-saved a FRESH file under the now-verified model.
+    assert result["timings"]["cache_source"] == "recomputed"
+    assert (tmp_path / "doc-1.bin").exists()
+
+
+# --- bulletproof-core regressions (2026-07 five-lens review) -----------------
+
+def test_score_answer_containment_respects_word_boundaries():
+    from app.cag import _score_answer
+    # "no" must not match inside "know"/"cannot" — a yes/no battery would
+    # otherwise score wrong answers as correct and inflate calibration.
+    assert not _score_answer("I don't know", "no", strict=False, threshold=0.85)
+    assert not _score_answer("cannot answer that", "no", strict=False, threshold=0.85)
+    assert _score_answer("No, it is not covered.", "no", strict=False, threshold=0.85)
+    assert _score_answer("the peak is 12 A for 10 s", "12 A", strict=False, threshold=0.85)
+
+
+def test_reingest_of_failed_document_heals_it(engine, fake_llama, fake_db):
+    from app.llama import LlamaError as LE
+    real_chat = fake_llama.chat
+
+    def failing_chat(*a, **k):
+        raise LE("llama hiccup mid-warm")
+
+    fake_llama.chat = failing_chat
+    with pytest.raises(LE):
+        engine.ingest_text("facts.txt", DOC)
+    assert fake_db.documents[1]["status"] == "failed"
+
+    fake_llama.chat = real_chat
+    result = engine.ingest_text("facts.txt", DOC)  # same bytes, re-dropped
+    assert result["deduplicated"] is True
+    assert result["status"] == "cached"  # healed — not returned as a corpse
+
+
+def test_delete_during_ingest_is_a_404_not_a_500(engine, fake_llama, fake_db):
+    real_chat = fake_llama.chat
+
+    def chat_and_delete(*a, **k):
+        fake_db.documents.pop(1, None)  # a concurrent DELETE wins mid-warm
+        return real_chat(*a, **k)
+
+    fake_llama.chat = chat_and_delete
+    with pytest.raises(UnknownDocumentError):
+        engine.ingest_text("facts.txt", DOC)
+    assert engine._slots == {}  # no stranded mapping to the deleted doc
+
+
+def test_question_alone_is_budget_checked(engine):
+    from app.cag import QuestionTooLargeError
+    engine.ingest_text("facts.txt", DOC)
+    with pytest.raises(QuestionTooLargeError):
+        engine.query("q" * 3000)  # ~1008-token estimate vs 854 available, no history
+
+
+def test_oversized_max_tokens_is_clamped_and_reported(engine):
+    engine.ingest_text("facts.txt", DOC)
+    result = engine.query("Q?", max_tokens=5000)  # legal per API, over the headroom
+    assert result["timings"]["max_tokens_clamped_from"] == 5000
+    assert result["answer"] == "the answer"
+
+
+def test_geometry_shrink_is_a_413_not_a_502(engine, fake_db):
+    engine.ingest_text("facts.txt", DOC)
+    fake_db.documents[1]["n_tokens"] = 5000  # ingested under a bigger geometry
+    with pytest.raises(DocumentTooLargeError):
+        engine.query("Q?", document_id=1)
+
+
+def test_empty_text_ingest_is_rejected(engine):
+    from app.extract import UnsupportedDocumentError as UDE
+    with pytest.raises(UDE):
+        engine.ingest_text("empty.txt", "   ")
+
+
+def test_chat_failure_unmaps_the_slot(engine, fake_llama):
+    from app.llama import LlamaError as LE
+    engine.ingest_text("facts.txt", DOC)
+
+    def boom(*a, **k):
+        raise LE("mid-request crash")
+
+    fake_llama.chat = boom
+    with pytest.raises(LE):
+        engine.query("Q?")
+    # No lying "memory" label: the retry must take restore-or-recompute.
+    assert engine._slots == {}
+
+
+def test_wrong_cache_label_is_corrected_and_rehealed(engine, fake_llama):
+    engine._spawn = lambda fn: fn()
+    engine.ingest_text("facts.txt", DOC)  # hot: the map says "memory"
+    real_chat = fake_llama.chat
+
+    def chat_cold(*a, **k):
+        out = real_chat(*a, **k)
+        # The server reused almost nothing — a restart behind our back.
+        out["timings"] = {"prompt_n": 500, "cache_n": 0, "predicted_n": 20}
+        return out
+
+    fake_llama.chat = chat_cold
+    result = engine.query("Q?")
+    assert result["timings"]["cache_source"] == "recomputed"  # truth, not the label
+    assert len(fake_llama.called("slot_save")) == 2  # warm + corrective re-save
+
+
+def test_query_bookkeeping_failure_never_discards_the_answer(engine, fake_db):
+    engine.ingest_text("facts.txt", DOC)
+
+    def db_down(**kwargs):
+        raise ConnectionError("postgres restarting")
+
+    fake_db.log_query = db_down
+    result = engine.query("Q?")  # must not raise
+    assert result["answer"] == "the answer"
 
 
 def test_maintenance_tolerates_cache_file_vanishing_mid_scan(engine, fake_db, tmp_path):

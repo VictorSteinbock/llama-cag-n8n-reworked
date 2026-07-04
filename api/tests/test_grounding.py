@@ -149,6 +149,22 @@ def test_recall_probe_stopwords_do_not_inflate():
     assert result["max_overlap"] is None
 
 
+def test_recall_probe_unsegmented_scripts_are_inconclusive_not_corroborated():
+    # CJK has no spaces, so token equality across differently-phrased clauses
+    # never fires; zero hits there must read as "cannot measure" (None), never
+    # as a confident 0.0 the gate would treat as corroboration.
+    cjk_claim = (
+        "".join(chr(c) for c in (0x4FDD, 0x8A3C, 0x671F, 0x9593))
+        + " "
+        + "".join(chr(c) for c in (0x4E09, 0x5E74, 0x9593, 0x3067))
+    )
+    cjk_doc = "".join(chr(c) for c in (0x88FD, 0x54C1, 0x306F, 0x4E38, 0x5E74, 0x4FDD))
+    result = recall_probe(cjk_claim, cjk_doc)
+    assert result["max_overlap"] is None  # inconclusive, not corroborated
+    # Latin claims with genuinely alien vocabulary still corroborate with 0.0.
+    assert recall_probe("orbital launch trajectory telemetry", DOC)["max_overlap"] == 0.0
+
+
 def test_recall_probe_scores_co_occurrence_not_bag_of_words():
     # Both topic words exist in the document but thousands of characters apart:
     # no single window holds them together, so the score reflects the best

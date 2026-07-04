@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
+import anyio
+import psycopg
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +17,7 @@ from .cag import (
     CagEngine,
     DocumentTooLargeError,
     NoCachedDocumentError,
+    QuestionTooLargeError,
     UnknownDocumentError,
 )
 from .config import Settings
@@ -32,11 +35,11 @@ class TextIngestRequest(BaseModel):
 
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=32_000)
 
 
 class QueryRequest(BaseModel):
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=32_000)
     document_id: int | None = None
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -52,14 +55,16 @@ class QueryRequest(BaseModel):
 
 
 class VerifyRequest(BaseModel):
-    claim: str = Field(min_length=1)
+    claim: str = Field(min_length=1, max_length=32_000)
     document_id: int | None = None
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
 
 
 class CalibrateItem(BaseModel):
-    question: str = Field(min_length=1)
-    expected: str = Field(min_length=1)
+    # Bounded: expected feeds difflib scoring (quadratic per window) and both
+    # ride the prompt; unbounded values are a self-DoS, never a real battery.
+    question: str = Field(min_length=1, max_length=8_000)
+    expected: str = Field(min_length=1, max_length=8_000)
 
 
 class CalibrateRequest(BaseModel):
@@ -126,10 +131,30 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
     async def llama_down(_, exc: LlamaError):
         return JSONResponse(status_code=502, content={"detail": str(exc)})
 
+    @app.exception_handler(QuestionTooLargeError)
+    async def question_too_large(_, exc: QuestionTooLargeError):
+        return JSONResponse(status_code=413, content={"detail": str(exc)})
+
+    @app.exception_handler(psycopg.Error)
+    async def db_unavailable(_, exc: psycopg.Error):
+        # Postgres down/restarting is a retryable outage, not a bug — and its
+        # message must come back as JSON like every other error here.
+        return JSONResponse(
+            status_code=503,
+            content={"detail": f"database unavailable ({type(exc).__name__}); retry shortly"},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled(_, exc: Exception):
+        # Last-resort net: consumers (n8n, the web UI, MCP) parse JSON error
+        # bodies — never hand them a text/plain traceback page.
+        logging.getLogger(__name__).exception("Unhandled error", exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "internal error"})
+
     # --- routes -------------------------------------------------------------
 
     @app.get("/")
-    def index():
+    async def index():
         return {
             "service": "cag-api",
             "version": __version__,
@@ -148,9 +173,17 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
             ],
         }
 
+    # Health gets its own thread allowance: the shared request threadpool can
+    # be fully parked on the engine lock during a long warm, and health must
+    # answer regardless — the engine's micro-lock design promises it, but that
+    # promise has to survive the HTTP layer too.
+    health_limiter = anyio.CapacityLimiter(4)
+
     @app.get("/health")
-    def health(request: Request):
-        report = _engine(request).health()
+    async def health(request: Request):
+        report = await anyio.to_thread.run_sync(
+            _engine(request).health, limiter=health_limiter
+        )
         status = 200 if report["status"] == "ok" else 503
         return JSONResponse(status_code=status, content=report)
 
@@ -174,7 +207,21 @@ def create_app(engine: CagEngine | None = None) -> FastAPI:
 
     @app.post("/documents/text", status_code=201)
     def ingest_text(request: Request, body: TextIngestRequest):
-        result = _engine(request).ingest_text(body.file_name, body.text)
+        engine = _engine(request)
+        limit_mb = engine.settings.max_upload_mb
+        if len(body.text) > limit_mb * 1024 * 1024:
+            # Parity with the multipart cap — the JSON route must not be the
+            # unbounded back door around MAX_UPLOAD_MB.
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": (
+                        f"Text exceeds the {limit_mb} MB limit. Raise MAX_UPLOAD_MB "
+                        "in .env and restart if you really need bigger documents."
+                    )
+                },
+            )
+        result = engine.ingest_text(body.file_name, body.text)
         return _document_response(result)
 
     @app.get("/documents")
@@ -254,7 +301,10 @@ def _read_limited(stream, limit_bytes: int) -> bytes | None:
     """Read an upload in 1 MB chunks, stopping at the cap.
 
     Returns the full body, or None the moment the running total exceeds
-    limit_bytes — the oversized remainder is never buffered."""
+    limit_bytes. This bounds HEAP use; Starlette has already spooled the
+    multipart body to a temp file during parsing, so oversized uploads cost
+    disk and bandwidth before this guard fires — the cap is a memory guard,
+    not a transfer guard."""
     chunks: list[bytes] = []
     total = 0
     while True:

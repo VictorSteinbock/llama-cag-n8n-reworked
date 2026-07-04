@@ -32,6 +32,13 @@ def extract_text(file_name: str, data: bytes) -> str:
         if b"\x00" in data:
             raise UnsupportedDocumentError(f"'{file_name}' looks binary, not text")
         text = data.decode("utf-8", errors="replace")
+        # A NUL-free binary (base64 blobs, some media) decodes into replacement-
+        # character soup; catching it here beats warming a garbage canon that
+        # then captures default queries.
+        if text and text.count(chr(0xFFFD)) / len(text) > 0.05:
+            raise UnsupportedDocumentError(
+                f"'{file_name}' does not decode as UTF-8 text (binary or wrong encoding?)"
+            )
         if ext in {".html", ".htm"}:
             text = _from_html(text)
 

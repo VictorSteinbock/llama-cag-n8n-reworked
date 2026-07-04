@@ -3,8 +3,10 @@
 The one thing worth pinning at this layer is the exact JSON the client puts on
 the wire for llama-server's /v1/chat/completions endpoint — in particular the
 ``response_format`` shape that turns a JSON Schema into grammar-constrained
-sampling, which llama-server's server README documents as
-``response_format: {"type": "json_schema", "schema": {...}}``.
+sampling. llama-server's OpenAI-compat parser reads the schema from the NESTED
+``json_schema`` object (``{"type": "json_schema", "json_schema": {"schema":
+{...}}}``); a top-level ``schema`` key beside ``type: json_schema`` is silently
+ignored and leaves sampling unconstrained — the exact bug this pin prevents.
 """
 
 import httpx
@@ -65,7 +67,11 @@ def test_chat_with_schema_sends_json_schema_response_format():
     import json
 
     payload = json.loads(sink[-1].content)
-    # The verified llama-server shape: response_format wraps the schema.
-    assert payload["response_format"] == {"type": "json_schema", "schema": schema}
+    # The OpenAI-wrapper shape llama-server actually parses: the schema rides
+    # INSIDE the nested json_schema object, never as a top-level sibling key.
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"schema": schema},
+    }
     # The rest of the payload is unchanged.
     assert payload["cache_prompt"] is True

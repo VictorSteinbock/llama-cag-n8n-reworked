@@ -34,7 +34,12 @@ _USAGE_WINDOW_SQL = """
 class Database:
     def __init__(self, conninfo: str) -> None:
         self._pool = ConnectionPool(
-            conninfo, min_size=1, max_size=4, open=False, kwargs={"row_factory": dict_row}
+            conninfo, min_size=1, max_size=4, open=False,
+            # Revalidate idle connections on checkout: after a Postgres restart
+            # the pool would otherwise hand up to max_size stale sockets to
+            # real requests before replenishing.
+            check=ConnectionPool.check_connection,
+            kwargs={"row_factory": dict_row},
         )
 
     def open(self, wait_s: float = 60.0) -> None:
@@ -67,11 +72,16 @@ class Database:
                 """,
                 (slug, file_name, content, sha256),
             )
-        except UniqueViolation:
+        except UniqueViolation as exc:
             # A concurrent request inserted identical content between the
             # caller's find_by_sha256 check and this INSERT (content_sha256 is
             # UNIQUE). None tells the caller to re-fetch and dedupe instead of
-            # surfacing a 500.
+            # surfacing a 500. But only the sha constraint means that — a PK
+            # violation (id sequence desynced by a dump restore) must surface,
+            # not masquerade as content dedupe.
+            constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+            if constraint and constraint != "documents_content_sha256_key":
+                raise
             return None
 
     def find_by_sha256(self, sha256: str) -> dict | None:

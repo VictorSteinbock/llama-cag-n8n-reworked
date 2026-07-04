@@ -43,7 +43,15 @@ class LlamaClient:
             raise LlamaError(
                 f"llama-server {path} returned {response.status_code}: {response.text[:500]}"
             )
-        return response.json()
+        # A 200 with a non-JSON body (crashed server mid-write, a proxy splash
+        # page, a misconfigured LLAMA_SERVER_URL) must surface as LlamaError
+        # (-> 502 + the recovery paths), never as a raw JSONDecodeError -> 500.
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise LlamaError(
+                f"llama-server {path} returned non-JSON: {response.text[:200]!r}"
+            ) from exc
 
     def health(self) -> dict:
         try:
@@ -52,7 +60,10 @@ class LlamaClient:
             raise LlamaError(f"llama-server unreachable: {exc}") from exc
         if response.status_code != 200:
             raise LlamaError(f"llama-server unhealthy: {response.text[:200]}")
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise LlamaError("llama-server /health returned non-JSON body") from exc
 
     def props(self) -> dict:
         """GET /props — server metadata; ``model_path`` identifies the loaded GGUF.
@@ -70,7 +81,10 @@ class LlamaClient:
             raise LlamaError(
                 f"llama-server /props returned {response.status_code}: {response.text[:200]}"
             )
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise LlamaError("llama-server /props returned non-JSON body") from exc
 
     def count_tokens(self, text: str) -> int:
         data = self._post("/tokenize", {"content": text}, timeout=self._warm_timeout)
@@ -93,11 +107,13 @@ class LlamaClient:
         the whole point of this project.
 
         When ``json_schema`` is given, the completion is constrained to emit
-        JSON matching it. llama-server's OpenAI-compatible endpoint takes this as
-        ``response_format: {"type": "json_schema", "schema": {...}}`` (see the
-        server README's ``response_format`` note); it drives grammar-based
-        sampling only and never alters the messages, so the cached prefix is
-        untouched.
+        JSON matching it, via the OpenAI wrapper shape llama-server's
+        compat layer parses: ``response_format: {"type": "json_schema",
+        "json_schema": {"schema": {...}}}``. (The parser reads the schema from
+        the nested ``json_schema`` object — a top-level ``schema`` key next to
+        ``type: json_schema`` is silently ignored and would leave sampling
+        unconstrained.) It drives grammar-based sampling only and never alters
+        the messages, so the cached prefix is untouched.
         """
         payload = {
             "messages": messages,
@@ -109,17 +125,24 @@ class LlamaClient:
             "timings_per_token": False,
         }
         if json_schema is not None:
-            payload["response_format"] = {"type": "json_schema", "schema": json_schema}
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"schema": json_schema},
+            }
         timeout = self._warm_timeout if warm else self._query_timeout
         data = self._post("/v1/chat/completions", payload, timeout=timeout)
         try:
-            content = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            content = choice["message"]["content"]
         except (KeyError, IndexError) as exc:
             raise LlamaError(f"Unexpected llama-server response shape: {data}") from exc
         return {
             "content": content,
             "timings": data.get("timings", {}),
             "usage": data.get("usage", {}),
+            # "stop" = finished naturally; "length" = clipped at max_tokens or
+            # the context edge. Surfaced so truncation is never silent.
+            "finish_reason": choice.get("finish_reason"),
         }
 
     # --- Slot persistence (requires llama-server --slot-save-path) ---------
