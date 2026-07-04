@@ -12,8 +12,15 @@ small, high-value core upgrades — chiefly ones that make the **grounding oracl
 honest and trustworthy — plus a few larger items that are real reworks and
 should be *decided*, not drifted into.
 
-Status legend: **Ready** (specified, no blockers) · **Ready·dep** (blocked only
-on another roadmap item) · **Design-first** (needs a design decision before code).
+Status legend: **Shipped (main)** (on the main branch; the section below is the
+as-built record) · **Ready** (specified, no blockers) · **Ready·dep** (blocked
+only on another roadmap item) · **Design-first** (needs a design decision before
+code).
+
+A note on reading shipped features: their sections keep the original
+implementation plan as the **as-built record** (steps, tests, decisions), so
+plan-tense sentences inside them ("this item ships…", "once F1 lands") are
+historical. The table above is the single source of truth for status.
 
 | # | Feature | Tier | Effort | Status |
 |---|---------|------|--------|--------|
@@ -74,6 +81,10 @@ security, so read them before touching `api/`:
    across I/O.
 6. **API changes are additive.** Add response fields; don't change or remove
    existing ones (n8n workflows, the MCP client, and LlamaCag UI all parse them).
+7. **The four cache-persistence guards stay in every llama command block**
+   (`--swa-full`, `--no-mmproj`, `--cache-ram 0`, `--ctx-checkpoints 0`) and
+   llama-server builds stay >= 2026-04-24 — restore correctness on
+   sliding-window models depends on them (F16 has the evidence).
    A DB column change needs a migration note (see F5).
 7. **Model defaults live in three places that must agree**: `.env.example`, the
    `${VAR:-default}` fallbacks in all `docker-compose*.yml`, and
@@ -189,7 +200,7 @@ no core change beyond F1 (the gate calls `/verify`).
    fully supported by the document: <draft>"`. A Set node applies the gate:
    `pass = verdict=="supported" AND quote_grounded==true`; output `{pass,
    verdict, quote, grounded_answer: G, reason}`. Error branch as in the other
-   workflows. Validate with the CI check (all six workflows).
+   workflows. Validate with the CI check (all bundled workflows).
 2. README: short subsection under the oracle with the curl example and the
    fail-safe rule stated once, linking here.
 
@@ -256,7 +267,7 @@ optional `calibration` n8n workflow wrapping it. No change to existing paths.
    general.
 3. Optional: a `calibration` workflow so it's runnable from n8n; and surface the
    last accuracy on `GET /documents` (add a nullable `reliability` column —
-   **migration note**, see F5's migration guidance).
+   **cut from the build, now tracked as F15** with the startup capability probe).
 4. README: a short "Know your canon's reliability" note under the oracle,
    pointing at the escalation-rate framing.
 
@@ -289,11 +300,10 @@ configurable cloud price.
 3. `main.py`: `GET /stats` returns the aggregates + savings. Extend
    `llamacag.py status` to print a one-line summary.
 4. **Optional follow-up (needs migration):** add a `cache_source` column to
-   `query_log` to show the memory/disk/recomputed distribution. Migration
-   guidance: `database/schema.sql` only runs on a *fresh* volume; existing
-   deployments need `ALTER TABLE query_log ADD COLUMN cache_source text;` — ship
-   it as `database/migrations/00x_*.sql` and note it in "Updating &
-   maintenance". Do the no-migration version first.
+   `query_log` to show the memory/disk/recomputed distribution. **Cut from the
+   build after review** (a `hasattr` check is not DB tolerance) — now tracked
+   as F15 together with the migration files and the startup capability probe.
+   The shipped `/stats` is the no-migration version.
 
 **Tests.** `db` stub-driven aggregation shape; endpoint returns the fields; a
 price of 0 omits the money line.
@@ -323,8 +333,11 @@ text; this just produces that text.
    need it. If no converter is configured and the PDF has no text layer, print a
    clear message pointing at the recommended tools (marker / docling / a vision
    model) rather than failing opaquely.
-2. Write the resulting `.md` to the watch folder (or `--out`), so the existing
-   ingestion path picks it up unchanged.
+2. Write the resulting `.md` to a staging folder for review before ingestion.
+   **As built (ruled in review):** output goes to `./prepared`
+   (`PREPARE_OUT_FOLDER`), which is *not* watched — the user reviews the
+   conversion and moves it into the watch folder deliberately; pointing it at
+   `./documents` is an explicit opt-in to auto-ingest.
 3. Docs: expand the README "Preparing documents" subsection with the command and
    the pluggable-converter env var; note the privacy trade-off (a cloud vision
    converter sends the document out — a local vision model keeps it in).
