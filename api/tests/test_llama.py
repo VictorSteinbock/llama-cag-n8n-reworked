@@ -75,3 +75,24 @@ def test_chat_with_schema_sends_json_schema_response_format():
     }
     # The rest of the payload is unchanged.
     assert payload["cache_prompt"] is True
+
+
+def test_chat_coerces_null_content_to_str():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": None}, "finish_reason": "stop"}]},
+        )
+
+    client = LlamaClient("http://llama-test:8080")
+    client._client = httpx.Client(
+        base_url="http://llama-test:8080", transport=httpx.MockTransport(handler)
+    )
+
+    result = client.chat([{"role": "user", "content": "hi"}], max_tokens=8, temperature=0.0)
+
+    # calibrate() scores content and /verify json-parses it — both assume str.
+    # A null answer must degrade to "", never to an AttributeError 500 that
+    # takes the whole calibration battery down with it.
+    assert result["content"] == ""
+    assert result["finish_reason"] == "stop"

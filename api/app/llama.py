@@ -102,9 +102,10 @@ class LlamaClient:
     ) -> dict:
         """One chat completion pinned to a slot, with prompt caching on.
 
-        Returns {"content", "timings", "usage"}. timings.prompt_n is the number
-        of prompt tokens actually evaluated — near zero on a cache hit, which is
-        the whole point of this project.
+        Returns {"content", "timings", "usage", "finish_reason"}; "content" is
+        always a str (a JSON null from the server coerces to ""). timings.prompt_n
+        is the number of prompt tokens actually evaluated — near zero on a cache
+        hit, which is the whole point of this project.
 
         When ``json_schema`` is given, the completion is constrained to emit
         JSON matching it, via the OpenAI wrapper shape llama-server's
@@ -136,6 +137,13 @@ class LlamaClient:
             content = choice["message"]["content"]
         except (KeyError, IndexError) as exc:
             raise LlamaError(f"Unexpected llama-server response shape: {data}") from exc
+        if content is None:
+            # The OpenAI-compat layer can emit "content": null (e.g. an empty
+            # schema-constrained completion). Everything downstream treats
+            # content as str — calibrate() scores it, /verify json-parses it —
+            # so a None would surface as an AttributeError 500 far from the
+            # cause. Coerce at the boundary: "content" is always a str.
+            content = ""
         return {
             "content": content,
             "timings": data.get("timings", {}),

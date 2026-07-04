@@ -170,6 +170,10 @@ class FakeLlama:
         # calibration tests. Empty dict falls back to answer_json-else-answer.
         self.scripted: dict[str, str] = {}
         self.model_path = "/models/fake-model.gguf"
+        # Mirrors the real client: chat() always carries a finish_reason
+        # ("stop" = finished naturally, "length" = clipped at max_tokens).
+        # Tests flip this to "length" to assert truncation is surfaced.
+        self.finish_reason = "stop"
         # Mirrors /props "total_slots" (the server's --parallel). Real servers
         # always report it; None simulates an older build without the field.
         # Tests that build engines with cag_slots > 1 must set this to match,
@@ -206,6 +210,7 @@ class FakeLlama:
             "content": content,
             "timings": {"prompt_n": 12, "cache_n": 480, "predicted_n": 20},
             "usage": {"prompt_tokens": 492},
+            "finish_reason": self.finish_reason,
         }
 
     def slot_save(self, filename, slot_id=0):

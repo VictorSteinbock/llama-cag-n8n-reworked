@@ -77,6 +77,17 @@ def test_query_uses_hot_document_without_restore(engine, fake_llama):
     assert fake_llama.called("slot_restore") == []
 
 
+def test_query_surfaces_finish_reason_in_timings(engine, fake_llama):
+    engine.ingest_text("facts.txt", DOC)
+    fake_llama.finish_reason = "length"
+
+    result = engine.query("What is the capital?")
+
+    # "length" = clipped at max_tokens — packaged into the timings receipt
+    # verbatim so truncation is never silent to API consumers.
+    assert result["timings"]["finish_reason"] == "length"
+
+
 def test_query_restores_from_disk_after_restart(fake_llama, fake_db, settings):
     # First engine ingests; second engine simulates an API restart (cold state).
     CagEngine(fake_llama, fake_db, settings).ingest_text("facts.txt", DOC)
