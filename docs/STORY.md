@@ -36,6 +36,12 @@ state, so only the question and the answer are ever computed.
   <img src="images/demo-60s.svg" alt="Three steps: pin the document once, your agent asks a tens-of-tokens question, a grounded answer arrives with the exact quoted line. Receipt: evaluated 38 of 41,772 tokens, 590 ms, from memory." width="100%">
 </p>
 
+*A disclaimer I want to make loudly: every number in these visuals (token
+counts, timings, any cost or savings math anywhere in the repo) is theoretical.
+It comes from config arithmetic and small local runs, not benchmarks. There is
+a lot of math in this project and some of it may simply be wrong. If your math
+finds a hole, that is exactly the feedback I'm after.*
+
 The part I actually care about sits on top, the validation step. Send a claim,
 get a verdict at temperature 0 with the supporting quote, and then plain code
 checks byte-for-byte that the quote really occurs in the source. A fabricated
@@ -48,8 +54,20 @@ quarantined or escalated. The gate is what I bolt into agent loops:
   <img src="images/grounding-gate.svg" alt="An agent's feedback loop with corruptible memory. A candidate fact passes a write-validation gate that consults a canon pinned outside the loop; supported facts enter memory, everything else is quarantined." width="100%">
 </p>
 
-Five concrete setups, one page each with their limits printed on the slide, are
-in the [use-case deck](USE-CASES.md).
+## Where I imagine this helping
+
+Imagine is the honest verb: I built these out as features, but I've only lived
+with the core loop myself. The one I use most is the first: a coding session
+aid, where Claude Code stops carrying a big vendor spec in its context window
+and just asks my machine, which holds the spec warm. The others are the same
+mechanism pointed at different problems:
+
+<p align="center">
+  <img src="images/story-usecases-strip.svg" alt="Five cards: coding session aid (Claude Code asks my machine about a pinned spec), support answer gate (draft re-derived and checked before send), agent memory gate (facts verified against an uncorruptible canon), claim audit (every verdict must cite a real line), reference desk (one person, one binder, quoted answers). Each notes what is and isn't tested." width="100%">
+</p>
+
+Each is one page in the [use-case deck](USE-CASES.md), with its honest limits
+printed on the slide itself.
 
 ## Resource reality, plainly
 

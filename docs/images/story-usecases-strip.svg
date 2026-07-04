@@ -1,0 +1,46 @@
+<svg viewBox="0 0 1200 292" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, 'Segoe UI', -apple-system, sans-serif">
+  <rect x="0" y="0" width="1200" height="292" fill="#0F172A"/>
+  <text x="40" y="40" font-size="14" font-weight="700" fill="#E2E8F0">The five setups I imagine, one page each in the deck</text>
+  <text x="1160" y="40" font-size="11" fill="#64748B" text-anchor="end">most are built, not lived with &#8212; that's the point of asking</text>
+
+  <rect x="40" y="60" width="216" height="186" rx="12" fill="#1E293B" stroke="#22D3EE" stroke-width="1.5"/>
+  <text x="58" y="90" font-size="12.5" font-weight="700" fill="#22D3EE">Coding session aid</text>
+  <text x="58" y="114" font-size="10.5" fill="#94A3B8">Claude Code asks my machine</text>
+  <text x="58" y="130" font-size="10.5" fill="#94A3B8">about a pinned 40k-token spec</text>
+  <text x="58" y="146" font-size="10.5" fill="#94A3B8">instead of carrying it in its</text>
+  <text x="58" y="162" font-size="10.5" fill="#94A3B8">own context window.</text>
+  <text x="58" y="228" font-size="9.5" fill="#64748B">deck &#183; page 1 &#183; core path tested</text>
+
+  <rect x="268" y="60" width="216" height="186" rx="12" fill="#1E293B" stroke="#34D399" stroke-width="1.5"/>
+  <text x="286" y="90" font-size="12.5" font-weight="700" fill="#34D399">Support answer gate</text>
+  <text x="286" y="114" font-size="10.5" fill="#94A3B8">A draft answer is re-derived</text>
+  <text x="286" y="130" font-size="10.5" fill="#94A3B8">from the manual at temp 0 and</text>
+  <text x="286" y="146" font-size="10.5" fill="#94A3B8">checked before anyone sees it.</text>
+  <text x="286" y="162" font-size="10.5" fill="#94A3B8">Fail-closed to a human.</text>
+  <text x="286" y="228" font-size="9.5" fill="#64748B">deck &#183; page 2 &#183; workflow untested live</text>
+
+  <rect x="496" y="60" width="216" height="186" rx="12" fill="#1E293B" stroke="#F87171" stroke-width="1.5"/>
+  <text x="514" y="90" font-size="12.5" font-weight="700" fill="#F87171">Agent memory gate</text>
+  <text x="514" y="114" font-size="10.5" fill="#94A3B8">A fact is verified against a</text>
+  <text x="514" y="130" font-size="10.5" fill="#94A3B8">canon the agent can't corrupt,</text>
+  <text x="514" y="146" font-size="10.5" fill="#94A3B8">before it becomes a memory.</text>
+  <text x="514" y="162" font-size="10.5" fill="#94A3B8">Logic tested, agents not.</text>
+  <text x="514" y="228" font-size="9.5" fill="#64748B">deck &#183; page 3 &#183; adapters untested live</text>
+
+  <rect x="724" y="60" width="216" height="186" rx="12" fill="#1E293B" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="742" y="90" font-size="12.5" font-weight="700" fill="#F59E0B">Claim audit</text>
+  <text x="742" y="114" font-size="10.5" fill="#94A3B8">Sweep a draft's claims; every</text>
+  <text x="742" y="130" font-size="10.5" fill="#94A3B8">verdict must cite a line that</text>
+  <text x="742" y="146" font-size="10.5" fill="#94A3B8">really exists in the source.</text>
+  <text x="742" y="162" font-size="10.5" fill="#94A3B8">Calibrate before trusting.</text>
+  <text x="742" y="228" font-size="9.5" fill="#64748B">deck &#183; page 4 &#183; mechanics tested</text>
+
+  <rect x="952" y="60" width="208" height="186" rx="12" fill="#1E293B" stroke="#94A3B8" stroke-width="1.5"/>
+  <text x="970" y="90" font-size="12.5" font-weight="700" fill="#E2E8F0">Reference desk</text>
+  <text x="970" y="114" font-size="10.5" fill="#94A3B8">One person, one dense binder,</text>
+  <text x="970" y="130" font-size="10.5" fill="#94A3B8">answers in seconds with the</text>
+  <text x="970" y="146" font-size="10.5" fill="#94A3B8">exact line quoted. All local.</text>
+  <text x="970" y="228" font-size="9.5" fill="#64748B">deck &#183; page 5 &#183; small docs tested</text>
+
+  <text x="600" y="276" font-size="10.5" fill="#64748B" text-anchor="middle">each page carries its own honest limits &#183; docs/USE-CASES.md</text>
+</svg>
