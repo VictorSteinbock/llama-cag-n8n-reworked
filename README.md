@@ -2,20 +2,11 @@
   <img src="docs/images/hero.svg" alt="llama-cag-n8n — Read once. Ask forever." width="100%">
 </p>
 
-# llama-cag-n8n
-
 **Ask questions about your documents with a fully local LLM — without the model
 re-reading the document every time.**
 
 [![CI](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorSteinbock/llama-cag-n8n-reworked/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-34D399.svg)](LICENSE)
-
-> **Not technical?** Read **[the two-minute, plain-words version](docs/EXPLAINER.md)**
-> — a brilliant reader, a filing clerk, and why reading once beats re-reading forever.
->
-> **Nervous about the install?** The **[step-by-step setup guide](docs/SETUP.md)**
-> walks it in plain words — or, if you use Claude Code,
-> **[let it set everything up for you](docs/SETUP.md#let-claude-code-do-it)**.
 
 <p align="center">
   <a href="#see-it-in-60-seconds"><img src="docs/images/nav-demo.svg" alt="60-second demo" height="46"></a>
@@ -28,6 +19,13 @@ re-reading the document every time.**
   <a href="docs/SETUP.md"><img src="docs/images/nav-setup.svg" alt="Setup guide" height="46"></a>
   <a href="docs/EXPLAINER.md"><img src="docs/images/nav-explainer.svg" alt="Plain-words explainer" height="46"></a>
 </p>
+
+> **Not technical?** Read **[the two-minute, plain-words version](docs/EXPLAINER.md)**
+> — a brilliant reader, a filing clerk, and why reading once beats re-reading forever.
+>
+> **Nervous about the install?** The **[step-by-step setup guide](docs/SETUP.md)**
+> walks it in plain words — or, if you use Claude Code,
+> **[let it set everything up for you](docs/SETUP.md#let-claude-code-do-it)**.
 
 ## See it in 60 seconds
 
